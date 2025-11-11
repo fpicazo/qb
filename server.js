@@ -80,7 +80,7 @@ app.get('/generate-qwc', (req, res) => {
   <AppID></AppID>
   <AppURL>${CONFIG.serverURL}/wsdl</AppURL>
   <AppDescription>QuickBooks Data Synchronization</AppDescription>
-  <AppSupport>https://support.example.com</AppSupport>
+  <AppSupport>https://qb-qd6q.onrender.com</AppSupport>
   <UserName>${CONFIG.username}</UserName>
   <OwnerID>{${uuidv4()}}</OwnerID>
   <FileID>{${uuidv4()}}</FileID>
