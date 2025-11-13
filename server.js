@@ -12,7 +12,7 @@ const CONFIG = {
   username: 'qbuser',
   password: 'qbpass123',
   appName: 'QB Data Sync',
-  serverURL: 'https://qb-qd6q.onrender.com'
+  serverURL: 'https://apintegration.online'
 };
 
 // SOAP Service - QuickBooks Integration
@@ -80,7 +80,7 @@ app.get('/generate-qwc', (req, res) => {
   <AppID></AppID>
   <AppURL>${CONFIG.serverURL}/wsdl</AppURL>
   <AppDescription>QuickBooks Data Synchronization</AppDescription>
-  <AppSupport>https://qb-qd6q.onrender.com</AppSupport>
+  <AppSupport>https://apintegration.online</AppSupport>
   <UserName>${CONFIG.username}</UserName>
   <OwnerID>{${uuidv4()}}</OwnerID>
   <FileID>{${uuidv4()}}</FileID>

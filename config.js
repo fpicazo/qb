@@ -21,7 +21,7 @@ module.exports = {
   // serverURL: 'http://192.168.1.100:8080'           // Local network
   // serverURL: 'http://123.45.67.89:8080'            // Public IP  
   // serverURL: 'https://api.yourcompany.com:8080'    // Domain with HTTPS
-  serverURL: 'https://qb-qd6q.onrender.com:8080',
+  serverURL: 'https:/apintegration.online:8080',
   
   // Scheduler Settings (for QWC file)
   scheduler: {
