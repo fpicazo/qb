@@ -14,7 +14,7 @@ module.exports = {
   // Application Information
   appName: 'QB Data Sync',
   appDescription: 'QuickBooks Data Synchronization Service',
-  appSupport: 'http://www.yourcompany.com/support',
+  appSupport: 'https:/apintegration.online/support',
   
   // IMPORTANT: Change this to your actual VPS IP or domain
   // Examples:
