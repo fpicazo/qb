@@ -1,5 +1,7 @@
-// server.js - Minimal QuickBooks Web Connector Server
+// server.js - Fixed QuickBooks Web Connector Server
 
+const https = require('https');  // ← ADD THIS
+const fs = require('fs');         // ← ADD THIS
 const express = require('express');
 const soap = require('soap');
 const { v4: uuidv4 } = require('uuid');
@@ -12,7 +14,7 @@ const CONFIG = {
   username: 'qbuser',
   password: 'qbpass123',
   appName: 'QB Data Sync',
-  serverURL: 'https://apintegration.online'
+  serverURL: 'https://infinitecapi.online'  // Remove 'www.' if not needed
 };
 
 // SOAP Service - QuickBooks Integration
@@ -80,7 +82,7 @@ app.get('/generate-qwc', (req, res) => {
   <AppID></AppID>
   <AppURL>${CONFIG.serverURL}/wsdl</AppURL>
   <AppDescription>QuickBooks Data Synchronization</AppDescription>
-  <AppSupport>https://apintegration.online</AppSupport>
+  <AppSupport>https://infinitecapi.online/support</AppSupport>
   <UserName>${CONFIG.username}</UserName>
   <OwnerID>{${uuidv4()}}</OwnerID>
   <FileID>{${uuidv4()}}</FileID>
@@ -132,21 +134,28 @@ app.get('/', (req, res) => {
   `);
 });
 
-// SOAP Endpoint
-app.post('/wsdl', (req, res) => {
-  res.set('Content-Type', 'text/xml');
-  soap.listen(app, '/wsdl', service, wsdl);
-});
+// Create HTTPS server with Sectigo certificate
+const options = {
+  key: fs.readFileSync('/certs/privkey.pem'),
+  cert: fs.readFileSync('/certs/fullchain.pem')
+};
 
-// Start Server
-app.listen(CONFIG.port, () => {
+const server = https.createServer(options, app);
+
+server.listen(CONFIG.port, async () => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🚀 QuickBooks Web Connector Started');
+  console.log('🚀 QB Web Connector Started');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`📍 URL: ${CONFIG.serverURL}`);
-  console.log(`📥 QWC: ${CONFIG.serverURL}/generate-qwc`);
-  console.log(`🔧 WSDL: ${CONFIG.serverURL}/wsdl`);
+  console.log(`📍 HTTPS URL: https://infinitecapi.online`);
+  console.log(`📥 QWC: https://infinitecapi.online/generate-qwc`);
+  console.log(`🔧 WSDL: https://infinitecapi.online/wsdl`);
   console.log(`👤 User: ${CONFIG.username}`);
-  console.log(`🔑 Pass: ${CONFIG.password}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+  
+  try {
+    soap.listen(server, '/wsdl', service, wsdl);
+    console.log('✓ SOAP server initialized');
+  } catch (err) {
+    console.error('✗ SOAP initialization error:', err.message);
+  }
 });

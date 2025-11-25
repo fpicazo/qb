@@ -14,14 +14,14 @@ module.exports = {
   // Application Information
   appName: 'QB Data Sync',
   appDescription: 'QuickBooks Data Synchronization Service',
-  appSupport: 'https:/apintegration.online/support',
+  appSupport: 'https://infinitecapi.online/support',
   
   // IMPORTANT: Change this to your actual VPS IP or domain
   // Examples:
   // serverURL: 'http://192.168.1.100:8080'           // Local network
   // serverURL: 'http://123.45.67.89:8080'            // Public IP  
   // serverURL: 'https://api.yourcompany.com:8080'    // Domain with HTTPS
-  serverURL: 'https:/apintegration.online:8080',
+  serverURL: 'https://infinitecapi.online',
   
   // Scheduler Settings (for QWC file)
   scheduler: {
