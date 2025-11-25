@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   qb-connector:
     image: qb-web-connector:latest
@@ -11,7 +9,7 @@ services:
       - SERVER_URL=https://infinitecapi.online
     restart: unless-stopped
     volumes:
-      - /opt/ssl/infinitecapi:/certs:ro  # Mount Sectigo certs
+      - /opt/ssl/infinitecapi:/certs:ro
     networks:
       - portainer_net
 
