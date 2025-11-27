@@ -2,15 +2,14 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
-
-# Install dependencies
 RUN npm install
 
-# Copy app files
 COPY . .
 
-EXPOSE 8080
+# Copy validation files
+COPY .well-known .well-known
+
+EXPOSE 80
 
 CMD ["node", "server.js"]
