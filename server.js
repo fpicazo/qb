@@ -5,12 +5,7 @@ const fs = require('fs');
 const express = require('express');
 const soap = require('soap');
 
-let uuidv4; // Will be loaded dynamically
-
-(async () => {
-  const uuid = await import('uuid');
-  uuidv4 = uuid.v4;
-})();
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 
