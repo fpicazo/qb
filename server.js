@@ -1,5 +1,4 @@
-// server.js - FIXED QuickBooks Web Connector Server
-// Key fixes: Manual SOAP handling, proper middleware, dynamic tickets
+// server.js - FIXED QuickBooks Web Connector Server with full integration
 
 const https = require('https');
 const fs = require('fs');
@@ -9,7 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 
-// Configuration
+// ========== CONFIGURATION ==========
 const CONFIG = {
   port: 8080,
   username: 'qbuser',
@@ -68,17 +67,17 @@ try {
   process.exit(1);
 }
 
-// ========== MIDDLEWARE - FIX: Use text, not raw! ==========
+// ========== MIDDLEWARE ==========
 app.use(express.text({ type: 'text/xml' }));
 app.use(express.text({ type: 'application/xml' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ========== SERVICE STATE ==========
-let currentTicket = null;
-let lastError = '';
+// ========== SETUP ROUTES ==========
+const setupRoutes = require('./routes');
+setupRoutes(app);
 
-// ========== WSDL DEFINITION - Embedded ==========
+// ========== WSDL DEFINITION ==========
 const wsdlXml = `<?xml version="1.0" encoding="UTF-8"?>
 <definitions name="QBWebConnectorSvc"
              targetNamespace="http://developer.intuit.com/"
@@ -278,25 +277,34 @@ app.post('/wsdl', async (req, res) => {
     console.log(`📦 Params:`, JSON.stringify(params).substring(0, 200));
 
     let response;
+    const { service } = require('./qbwcService');
+    const svc = service.QBWebConnectorSvc.QBWebConnectorSvcSoap;
 
     try {
-      // FIX: Properly structured responses
       if (methodName === 'authenticate') {
-        response = handleAuthenticate(params);
+        const result = svc.authenticate(params);
+        response = buildAuthenticateResponse(result.authenticateResult.string);
       } else if (methodName === 'clientVersion') {
-        response = handleClientVersion(params);
+        const result = svc.clientVersion(params);
+        response = buildSimpleResponse('clientVersion', result.clientVersionResult);
       } else if (methodName === 'serverVersion') {
-        response = handleServerVersion(params);
+        const result = svc.serverVersion(params);
+        response = buildSimpleResponse('serverVersion', result.serverVersionResult);
       } else if (methodName === 'sendRequestXML') {
-        response = handleSendRequestXML(params);
+        const result = svc.sendRequestXML(params);
+        response = buildSimpleResponse('sendRequestXML', result.sendRequestXMLResult);
       } else if (methodName === 'receiveResponseXML') {
-        response = handleReceiveResponseXML(params);
+        const result = svc.receiveResponseXML(params);
+        response = buildSimpleResponse('receiveResponseXML', result.receiveResponseXMLResult);
       } else if (methodName === 'getLastError') {
-        response = handleGetLastError(params);
+        const result = svc.getLastError(params);
+        response = buildSimpleResponse('getLastError', result.getLastErrorResult);
       } else if (methodName === 'closeConnection') {
-        response = handleCloseConnection(params);
+        const result = svc.closeConnection(params);
+        response = buildSimpleResponse('closeConnection', result.closeConnectionResult);
       } else if (methodName === 'connectionError') {
-        response = handleConnectionError(params);
+        const result = svc.connectionError(params);
+        response = buildSimpleResponse('connectionError', result.connectionErrorResult);
       } else {
         response = buildFaultResponse('Unknown method: ' + methodName);
       }
@@ -316,85 +324,10 @@ app.post('/wsdl', async (req, res) => {
   });
 });
 
-// ========== HANDLER FUNCTIONS ==========
-
-function handleAuthenticate(params) {
-  console.log('🔐 Authenticate called');
-  const username = params.strUserName || '';
-  const password = params.strPassword || '';
-
-  if (username === CONFIG.username && password === CONFIG.password) {
-    currentTicket = `ticket_${Date.now()}_${uuidv4()}`;
-    console.log('✅ Auth success, ticket:', currentTicket);
-    return buildAuthenticateResponse(currentTicket, '');
-  }
-
-  console.log('❌ Invalid credentials');
-  return buildAuthenticateResponse('nvu', '');
-}
-
-function handleClientVersion(params) {
-  console.log('📱 Client version:', params.strVersion);
-  return buildSimpleResponse('clientVersion', '');
-}
-
-function handleServerVersion(params) {
-  console.log('🖥️  Server version requested');
-  return buildSimpleResponse('serverVersion', '1.0.0');
-}
-
-function handleSendRequestXML(params) {
-  console.log('📤 sendRequestXML called');
-  console.log('   Ticket:', params.ticket);
-
-  lastError = '';
-
-  if (params.ticket !== currentTicket) {
-    console.error('❌ Invalid ticket');
-    return buildSimpleResponse('sendRequestXML', '');
-  }
-
-  // For now, return empty (no jobs to process)
-  // In production, queue jobs here
-  console.log('✅ No pending jobs');
-  return buildSimpleResponse('sendRequestXML', '');
-}
-
-function handleReceiveResponseXML(params) {
-  console.log('📥 receiveResponseXML called');
-  console.log('   HRESULT:', params.hresult || '(none)');
-  console.log('   Message:', params.message || '(none)');
-
-  if (params.hresult && String(params.hresult).trim() !== '') {
-    lastError = `QB Error ${params.hresult}: ${params.message || 'Unknown'}`;
-    console.error('❌', lastError);
-  } else {
-    console.log('✅ Response received successfully');
-  }
-
-  return buildSimpleResponse('receiveResponseXML', '100');
-}
-
-function handleGetLastError(params) {
-  console.log('🔍 getLastError called');
-  return buildSimpleResponse('getLastError', lastError || '');
-}
-
-function handleCloseConnection(params) {
-  console.log('👋 closeConnection called');
-  currentTicket = null;
-  return buildSimpleResponse('closeConnection', 'OK');
-}
-
-function handleConnectionError(params) {
-  lastError = `Connection error: ${params?.hresult || ''} ${params?.message || ''}`.trim();
-  console.error('❌', lastError);
-  return buildSimpleResponse('connectionError', 'done');
-}
-
 // ========== SOAP RESPONSE BUILDERS ==========
 
-function buildAuthenticateResponse(ticket, companyFile) {
+function buildAuthenticateResponse(resultArray) {
+  const [ticket, companyFile] = resultArray;
   return `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <soap:Body>
@@ -441,71 +374,6 @@ function escapeXml(str) {
     .replace(/'/g, '&apos;');
 }
 
-// ========== QWC GENERATION ==========
-app.get('/generate-qwc', (req, res) => {
-  const qwcContent = `<?xml version="1.0"?>
-<QBWCXML>
-  <AppName>${CONFIG.appName}</AppName>
-  <AppID></AppID>
-  <AppURL>${CONFIG.serverURL}/wsdl</AppURL>
-  <AppDescription>QuickBooks Data Synchronization</AppDescription>
-  <AppSupport>https://infinitecapi.online/support</AppSupport>
-  <UserName>${CONFIG.username}</UserName>
-  <OwnerID>{${uuidv4()}}</OwnerID>
-  <FileID>{${uuidv4()}}</FileID>
-  <QBType>QBFS</QBType>
-  <IsReadOnly>false</IsReadOnly>
-</QBWCXML>`;
-
-  res.setHeader('Content-Type', 'application/xml');
-  res.setHeader('Content-Disposition', 'attachment; filename="quickbooks-connector.qwc"');
-  res.send(qwcContent);
-  console.log('✓ QWC file generated');
-});
-
-// ========== STATUS PAGE ==========
-app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>QB Web Connector</title>
-      <style>
-        body { font-family: Arial; max-width: 600px; margin: 50px auto; padding: 20px; }
-        .status { background: #d4edda; padding: 20px; border-radius: 5px; margin: 20px 0; }
-        .button { display: inline-block; background: #007bff; color: white; padding: 15px 30px; 
-                  text-decoration: none; border-radius: 5px; font-weight: bold; }
-        .info { background: #f8f9fa; padding: 15px; margin: 20px 0; border-left: 4px solid #007bff; }
-        code { background: #e9ecef; padding: 3px 8px; border-radius: 3px; }
-      </style>
-    </head>
-    <body>
-      <h1>QuickBooks Web Connector</h1>
-      <div class="status">✓ Server Running on HTTPS</div>
-      
-      <h3>Download QWC File:</h3>
-      <a href="/generate-qwc" class="button">Download QWC</a>
-      
-      <div class="info">
-        <strong>Credentials:</strong><br>
-        Username: <code>${CONFIG.username}</code><br>
-        Password: <code>${CONFIG.password}</code>
-      </div>
-      
-      <div class="info">
-        <strong>WSDL Endpoint:</strong><br>
-        <code>${CONFIG.serverURL}/wsdl?wsdl</code>
-      </div>
-      
-      <div class="info">
-        <strong>SOAP Endpoint:</strong><br>
-        <code>${CONFIG.serverURL}/wsdl</code>
-      </div>
-    </body>
-    </html>
-  `);
-});
-
 // ========== START HTTPS SERVER ==========
 console.log('🔐 Creating HTTPS server...\n');
 
@@ -528,6 +396,9 @@ try {
     console.log(`👤 User: ${CONFIG.username}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     console.log('✅ Ready for QBWC connection!\n');
+    console.log('📡 API Endpoints:');
+    console.log('   POST /api/customers/fetch - Queue customer fetch');
+    console.log('   GET  /api/queue           - View queue status\n');
   });
 } catch (err) {
   console.error('\n❌ HTTPS Server Creation Error:', err.message);

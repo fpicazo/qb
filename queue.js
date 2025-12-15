@@ -1,23 +1,52 @@
+// queue.js - Job queue management
+
 const queue = [];
 
-function addJob(job) { // {type: 'CustomerAdd'|'InvoiceQuery', payload:{}}
-  queue.push({ id: Date.now().toString(), status: 'pending', ...job });
+function addJob(job) {
+  // job: { type: 'CustomerQuery', payload: {...} }
+  const jobWithId = {
+    id: Date.now().toString(),
+    status: 'pending',
+    ...job
+  };
+  queue.push(jobWithId);
+  console.log(`✅ Job queued: ${jobWithId.id} (${job.type})`);
+  return jobWithId;
 }
 
 function getNextPending() {
   const job = queue.find(j => j.status === 'pending');
-  if (job) job.status = 'processing';
+  if (job) {
+    job.status = 'processing';
+    console.log(`🔄 Job now processing: ${job.id}`);
+  }
   return job || null;
 }
 
-function markDone(id, extra={}) {
-  const j = queue.find(x => x.id === id);
-  if (j) { j.status = 'done'; j.result = extra; }
+function markDone(id, extra = {}) {
+  const job = queue.find(x => x.id === id);
+  if (job) {
+    job.status = 'done';
+    job.result = extra;
+    job.completedAt = new Date().toISOString();
+    console.log(`✅ Job completed: ${id}`);
+  }
 }
 
 function markError(id, err) {
-  const j = queue.find(x => x.id === id);
-  if (j) { j.status = 'error'; j.error = String(err); }
+  const job = queue.find(x => x.id === id);
+  if (job) {
+    job.status = 'error';
+    job.error = String(err);
+    job.errorAt = new Date().toISOString();
+    console.log(`❌ Job error: ${id} - ${err}`);
+  }
 }
 
-module.exports = { addJob, getNextPending, markDone, markError, _queue: queue };
+module.exports = {
+  addJob,
+  getNextPending,
+  markDone,
+  markError,
+  _queue: queue
+};

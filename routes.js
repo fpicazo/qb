@@ -160,6 +160,28 @@ function setupRoutes(app) {
             <code>${config.serverURL}/wsdl</code>
             <p style="margin-top: 10px;">They should see XML content if the connection is working.</p>
         </div>
+
+        <h2>📡 API Endpoints</h2>
+        <div class="info-box">
+            <h3>Fetch Customers:</h3>
+            <code>POST /api/customers/fetch</code>
+            <p style="margin-top: 10px;">Request body (optional):</p>
+            <pre>{
+  "maxReturned": 100,
+  "name": "John Doe",
+  "nameFilter": {
+    "name": "Acme",
+    "matchCriterion": "StartsWith"
+  }
+}</pre>
+            <p>Response will contain jobId to check results in queue</p>
+        </div>
+
+        <h2>📊 Queue Status</h2>
+        <div class="info-box">
+            <code>GET /api/queue</code>
+            <p style="margin-top: 10px;">View all jobs and their results</p>
+        </div>
     </div>
 </body>
 </html>
@@ -195,23 +217,55 @@ function setupRoutes(app) {
     
     console.log('QWC file generated and downloaded');
   });
-}
 
-app.post('/api/customers/query', (req, res) => {
-  try {
-    const { addJob } = require('./queue');
-    
-    addJob({
-      type: 'CustomerQuery',
-      payload: {
-        maxReturned: (req.body && req.body.maxReturned) || 100
-      }
-    });
-    
-    res.json({ success: true, message: 'Customer query job queued' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+  // ========== FETCH CUSTOMERS ENDPOINT ==========
+  app.post('/api/customers/fetch', (req, res) => {
+    try {
+      const { addJob, _queue } = require('./queue');
+      const { maxReturned, name, nameFilter } = req.body || {};
+      
+      // Queue customer query job
+      addJob({
+        type: 'CustomerQuery',
+        payload: {
+          maxReturned: maxReturned || 100,
+          name: name || null,
+          nameFilter: nameFilter || null
+        }
+      });
+      
+      // Get the job ID (last job added)
+      const jobId = _queue[_queue.length - 1].id;
+      
+      res.json({
+        success: true,
+        jobId: jobId,
+        message: 'Customer fetch job queued',
+        filters: {
+          maxReturned: maxReturned || 100,
+          name: name || null,
+          nameFilter: nameFilter || null
+        },
+        instruction: `Check /api/queue with jobId: ${jobId} to get results when done`
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ========== QUEUE STATUS ENDPOINT ==========
+  app.get('/api/queue', (req, res) => {
+    try {
+      const { _queue } = require('./queue');
+      res.json({
+        success: true,
+        count: _queue.length,
+        queue: _queue
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+}
 
 module.exports = setupRoutes;
