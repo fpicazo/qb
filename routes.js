@@ -197,4 +197,21 @@ function setupRoutes(app) {
   });
 }
 
+app.post('/api/customers/query', (req, res) => {
+  try {
+    const { addJob } = require('./queue');
+    
+    addJob({
+      type: 'CustomerQuery',
+      payload: {
+        maxReturned: (req.body && req.body.maxReturned) || 100
+      }
+    });
+    
+    res.json({ success: true, message: 'Customer query job queued' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = setupRoutes;
