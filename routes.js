@@ -355,6 +355,71 @@ app.post('/api/customers', (req, res) => {
   }
 });
 
+app.post('/api/invoices/query', (req, res) => {
+  try {
+    const { addJob, _queue } = require('./queue');
+    const { maxReturned, depositToAccountName, customerName } = req.body || {};
+    
+    // Queue invoice query job
+    addJob({
+      type: 'InvoiceQuery',
+      payload: {
+        maxReturned: maxReturned || 100,
+        depositToAccountName: depositToAccountName || null,
+        customerName: customerName || null
+      }
+    });
+    
+    const jobId = _queue[_queue.length - 1].id;
+    
+    res.json({
+      success: true,
+      jobId: jobId,
+      message: 'Invoice query job queued',
+      filters: {
+        maxReturned: maxReturned || 100,
+        depositToAccountName: depositToAccountName || 'all',
+        customerName: customerName || 'all'
+      },
+      instruction: `Check /api/queue with jobId: ${jobId} to get results when done`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/invoices/by-deposit/:depositAccount', (req, res) => {
+  try {
+    const { addJob, _queue } = require('./queue');
+    const { depositAccount } = req.params;
+    const { maxReturned } = req.body || {};
+    
+    // Queue invoice query job with deposit filter
+    addJob({
+      type: 'InvoiceQuery',
+      payload: {
+        maxReturned: maxReturned || 100,
+        depositToAccountName: depositAccount.toUpperCase(),
+        customerName: null
+      }
+    });
+    
+    const jobId = _queue[_queue.length - 1].id;
+    
+    res.json({
+      success: true,
+      jobId: jobId,
+      message: `Invoice query job queued for deposit account: ${depositAccount.toUpperCase()}`,
+      filters: {
+        depositToAccountName: depositAccount.toUpperCase(),
+        maxReturned: maxReturned || 100
+      },
+      instruction: `Check /api/queue with jobId: ${jobId} to get results when done`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 
 

@@ -1,6 +1,6 @@
 // qbwcService.js - QB Web Connector Service
 
-const { customerQuery, itemQuery, customerAdd, itemAdd } = require('./qbxmlBuilders');
+const { customerQuery, itemQuery, customerAdd, itemAdd, invoiceQuery  } = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
 
 let currentTicket = null;
@@ -112,6 +112,16 @@ const service = {
             });
             console.log('📝 ItemAdd XML generated');
             console.log('   Item:', job.payload.name, `(${job.payload.type})`);
+          } else if (job.type === 'InvoiceQuery') {
+            qbxml = invoiceQuery({
+              maxReturned: job.payload.maxReturned || 100,
+              depositToAccountName: job.payload.depositToAccountName,
+              customerName: job.payload.customerName
+            });
+            console.log('📝 InvoiceQuery XML generated');
+            if (job.payload.depositToAccountName) {
+              console.log('   Filter by deposit account:', job.payload.depositToAccountName);
+            }
           }
           else {
             lastErrorMsg = `Unknown job type: ${job.type}`;

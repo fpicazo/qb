@@ -138,6 +138,47 @@ function customerAdd({ fullName, email, phone }) {
   return wrapRq(inner);
 }
 
+// ========== INVOICE OPERATIONS ==========
+
+function invoiceQuery({ maxReturned = 100, depositToAccountName, customerName, txnDateStart, txnDateEnd } = {}) {
+  const inner = create().ele('InvoiceQueryRq', { requestID: 'invoice-query-1' });
+  
+  // Add MaxReturned
+  inner.ele('MaxReturned').txt(String(maxReturned));
+  
+  // Add optional filters via metadata
+  // Note: QB doesn't support direct filtering in InvoiceQuery request
+  // Filtering by DepositToAccountRef happens in response parsing
+  
+  // Request all fields so we can filter client-side
+  inner.ele('IncludeRetElement').txt('TxnID');
+  inner.ele('IncludeRetElement').txt('TimeCreated');
+  inner.ele('IncludeRetElement').txt('TimeModified');
+  inner.ele('IncludeRetElement').txt('DocNumber');
+  inner.ele('IncludeRetElement').txt('TxnDate');
+  inner.ele('IncludeRetElement').txt('CustomerRef');
+  inner.ele('IncludeRetElement').txt('RefNumber');
+  inner.ele('IncludeRetElement').txt('BillAddress');
+  inner.ele('IncludeRetElement').txt('ShipAddress');
+  inner.ele('IncludeRetElement').txt('ClassRef');
+  inner.ele('IncludeRetElement').txt('TermsRef');
+  inner.ele('IncludeRetElement').txt('DueDate');
+  inner.ele('IncludeRetElement').txt('Memo');
+  inner.ele('IncludeRetElement').txt('IsPending');
+  inner.ele('IncludeRetElement').txt('IsFinanceCharge');
+  inner.ele('IncludeRetElement').txt('PONumber');
+  inner.ele('IncludeRetElement').txt('Subtotal');
+  inner.ele('IncludeRetElement').txt('TaxPercent');
+  inner.ele('IncludeRetElement').txt('Tax');
+  inner.ele('IncludeRetElement').txt('Total');
+  inner.ele('IncludeRetElement').txt('InvoiceLineRet');
+  inner.ele('IncludeRetElement').txt('DepositToAccountRef');
+  
+  inner.up();
+  return wrapRq(inner);
+}
+
+
 
 
 
@@ -145,7 +186,8 @@ module.exports = {
   customerQuery,
   itemQuery,
   itemAdd,
-  customerAdd
+  customerAdd,
+  invoiceQuery
   
 
 };
