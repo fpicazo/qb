@@ -85,10 +85,67 @@ function itemQuery({ maxReturned = 100, name, nameFilter } = {}) {
   return wrapRq(inner);
 }
 
+function itemAdd({ type = 'Service', name, description, price, account }) {
+  if (!name) throw new Error('Item name is required');
+  
+  const validTypes = ['Service', 'NonInventory', 'Inventory'];
+  if (!validTypes.includes(type)) {
+    throw new Error(`Invalid type: ${type}. Use: Service, NonInventory, or Inventory`);
+  }
+
+  // Keep reference to root document
+  const root = create();
+  const req = root.ele(`Item${type}AddRq`, { requestID: 'item-1' });
+  const add = req.ele(`Item${type}Add`);
+  
+  // Add name (required)
+  add.ele('Name').txt(name);
+
+  // Inventory items use different tags than Service/NonInventory
+  if (type === 'Inventory') {
+    if (description) add.ele('SalesDesc').txt(description);
+    if (price !== undefined) add.ele('SalesPrice').txt(Number(price).toFixed(2));
+    // Add income account for inventory
+    if (account) {
+      add.ele('IncomeAccountRef')
+        .ele('FullName').txt(account);
+    }
+  } else {
+    // Service and NonInventory use SalesOrPurchase wrapper
+    if (description || price !== undefined || account) {
+      const sop = add.ele('SalesOrPurchase');
+      if (description) sop.ele('Desc').txt(description);
+      if (price !== undefined) sop.ele('Price').txt(Number(price).toFixed(2));
+      // Add account reference for service/non-inventory
+      if (account) {
+        sop.ele('AccountRef')
+          .ele('FullName').txt(account);
+      }
+    }
+  }
+
+  // Pass root document to wrapRq (contains ItemServiceAddRq)
+  return wrapRq(root);
+}
+
+function customerAdd({ fullName, email, phone }) {
+  const inner = create().ele('CustomerAddRq', { requestID: 'cust-1' })
+    .ele('CustomerAdd')
+      .ele('Name').txt(fullName).up()
+      .ele('Phone').txt(phone || '').up()
+      .ele('Email').txt(email || '').up()
+    .up().up();
+  return wrapRq(inner);
+}
+
 
 
 
 module.exports = { 
   customerQuery,
-  itemQuery
+  itemQuery,
+  itemAdd,
+  customerAdd
+  
+
 };

@@ -1,6 +1,6 @@
 // qbwcService.js - QB Web Connector Service
 
-const { customerQuery,itemQuery } = require('./qbxmlBuilders');
+const { customerQuery,itemQuery,customerAdd,itemAdd } = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
 
 let currentTicket = null;

@@ -291,6 +291,73 @@ function setupRoutes(app) {
   }
 });
 
+app.post('/api/items', (req, res) => {
+  try {
+    const { addJob } = require('./queue');
+    const { type, name, description, price, account } = req.body;
+    
+    // Validate required fields
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    
+    if (!type) {
+      return res.status(400).json({ error: 'type is required (Service, NonInventory, or Inventory)' });
+    }
+    
+    // Validate type
+    const validTypes = ['Service', 'NonInventory', 'Inventory'];
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({ 
+        error: `Invalid type. Must be one of: ${validTypes.join(', ')}` 
+      });
+    }
+    
+    // Queue the job
+    addJob({
+      type: 'ItemAdd',
+      payload: {
+        type,
+        name,
+        description,
+        price,
+        account  // Add account support
+      }
+    });
+    
+    res.json({ 
+      success: true, 
+      message: `Item add job queued for: ${name}`,
+      itemType: type
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/customers', (req, res) => {
+  try {
+    const { addJob } = require('./queue');
+    const { fullName, email, phone } = req.body;
+    
+    if (!fullName) {
+      return res.status(400).json({ error: 'fullName is required' });
+    }
+    
+    addJob({
+      type: 'CustomerAdd',
+      payload: { fullName, email: email || '', phone: phone || '' }
+    });
+    
+    res.json({ success: true, message: 'Customer add job queued' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+
+
 
   // ========== QUEUE STATUS ENDPOINT ==========
   app.get('/api/queue', (req, res) => {
