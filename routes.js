@@ -364,7 +364,7 @@ app.post('/api/invoices/query', (req, res) => {
     addJob({
       type: 'InvoiceQuery',
       payload: {
-        maxReturned: maxReturned || 100,
+        maxReturned: maxReturned || 20,
         depositToAccountName: depositToAccountName || null,
         customerName: customerName || null
       }
@@ -377,7 +377,7 @@ app.post('/api/invoices/query', (req, res) => {
       jobId: jobId,
       message: 'Invoice query job queued',
       filters: {
-        maxReturned: maxReturned || 100,
+        maxReturned: maxReturned || 20,
         depositToAccountName: depositToAccountName || 'all',
         customerName: customerName || 'all'
       },
