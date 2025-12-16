@@ -1,6 +1,6 @@
 // qbwcService.js - QB Web Connector Service
 
-const { customerQuery,itemQuery,customerAdd,itemAdd } = require('./qbxmlBuilders');
+const { customerQuery, itemQuery, customerAdd, itemAdd } = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
 
 let currentTicket = null;
@@ -84,14 +84,36 @@ const service = {
               nameFilter: job.payload.nameFilter
             });
             console.log('📝 CustomerQuery XML generated');
-          } else if (job.type === 'ItemQuery') {
+          } 
+          else if (job.type === 'CustomerAdd') {
+            qbxml = customerAdd({
+              fullName: job.payload.fullName,
+              email: job.payload.email,
+              phone: job.payload.phone
+            });
+            console.log('📝 CustomerAdd XML generated');
+            console.log('   Customer:', job.payload.fullName);
+          }
+          else if (job.type === 'ItemQuery') {
             qbxml = itemQuery({
               maxReturned: job.payload.maxReturned || 100,
               name: job.payload.name,
               nameFilter: job.payload.nameFilter
             });
             console.log('📝 ItemQuery XML generated');
-          }else {
+          }
+          else if (job.type === 'ItemAdd') {
+            qbxml = itemAdd({
+              type: job.payload.type,
+              name: job.payload.name,
+              description: job.payload.description,
+              price: job.payload.price,
+              account: job.payload.account
+            });
+            console.log('📝 ItemAdd XML generated');
+            console.log('   Item:', job.payload.name, `(${job.payload.type})`);
+          }
+          else {
             lastErrorMsg = `Unknown job type: ${job.type}`;
             console.error('❌', lastErrorMsg);
             markError(job.id, lastErrorMsg);
