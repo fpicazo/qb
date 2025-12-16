@@ -51,8 +51,44 @@ function customerQuery({ maxReturned = 100, name, nameFilter } = {}) {
   return wrapRq(inner);
 }
 
+function itemQuery({ maxReturned = 100, name, nameFilter } = {}) {
+  const inner = create().ele('ItemQueryRq', { requestID: 'item-query-1' });
+  
+  // IMPORTANT: QBXML requires specific element order!
+  // Order: FullName/ListID → MaxReturned → NameFilter → IncludeRetElement
+  
+  // Filter by exact name if provided (must come FIRST)
+  if (name) {
+    inner.ele('FullName').txt(name);
+  }
+  
+  // Add MaxReturned (comes AFTER name filters)
+  inner.ele('MaxReturned').txt(String(maxReturned));
+  
+  // Filter by name pattern if provided (comes AFTER MaxReturned)
+  if (nameFilter && nameFilter.name) {
+    const filter = inner.ele('NameFilter');
+    filter.ele('MatchCriterion').txt(nameFilter.matchCriterion || 'StartsWith');
+    filter.ele('Name').txt(nameFilter.name);
+  }
+  
+  // Request specific fields (must come LAST)
+  inner.ele('IncludeRetElement').txt('ListID');
+  inner.ele('IncludeRetElement').txt('Name');
+  inner.ele('IncludeRetElement').txt('FullName');
+  inner.ele('IncludeRetElement').txt('Type');
+  inner.ele('IncludeRetElement').txt('IsActive');
+  inner.ele('IncludeRetElement').txt('SalesPrice');
+  inner.ele('IncludeRetElement').txt('SalesDesc');
+  
+  inner.up();
+  return wrapRq(inner);
+}
+
+
 
 
 module.exports = { 
-  customerQuery
+  customerQuery,
+  itemQuery
 };

@@ -219,7 +219,7 @@ function setupRoutes(app) {
   });
 
   // ========== FETCH CUSTOMERS ENDPOINT ==========
-  app.post('/api/customers/fetch', (req, res) => {
+  app.post('/api/customers/query', (req, res) => {
     try {
       const { addJob, _queue } = require('./queue');
       const { maxReturned, name, nameFilter } = req.body || {};
@@ -252,6 +252,45 @@ function setupRoutes(app) {
       res.status(500).json({ error: error.message });
     }
   });
+
+// ==========ITEMS ==========
+  app.post('/api/items/query', (req, res) => {
+  try {
+    const { addJob } = require('./queue');
+    const { maxReturned, name, nameFilter } = req.body || {};
+    
+    // Build payload
+    const payload = {
+      maxReturned: maxReturned || 100
+    };
+    
+    // Add exact name filter if provided
+    if (name) {
+      payload.name = name;
+    }
+    
+    // Add pattern-based name filter if provided
+    if (nameFilter) {
+      payload.nameFilter = nameFilter;
+    }
+    
+    // Queue the query job
+    addJob({
+      type: 'ItemQuery',
+      payload
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Item query job queued',
+      filters: payload,
+      note: 'Check /api/queue for results after QBWC processes'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
   // ========== QUEUE STATUS ENDPOINT ==========
   app.get('/api/queue', (req, res) => {

@@ -1,6 +1,6 @@
 // qbwcService.js - QB Web Connector Service
 
-const { customerQuery } = require('./qbxmlBuilders');
+const { customerQuery,itemQuery } = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
 
 let currentTicket = null;
@@ -84,7 +84,14 @@ const service = {
               nameFilter: job.payload.nameFilter
             });
             console.log('📝 CustomerQuery XML generated');
-          } else {
+          } else if (job.type === 'ItemQuery') {
+            qbxml = itemQuery({
+              maxReturned: job.payload.maxReturned || 100,
+              name: job.payload.name,
+              nameFilter: job.payload.nameFilter
+            });
+            console.log('📝 ItemQuery XML generated');
+          }else {
             lastErrorMsg = `Unknown job type: ${job.type}`;
             console.error('❌', lastErrorMsg);
             markError(job.id, lastErrorMsg);
