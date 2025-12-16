@@ -140,7 +140,7 @@ function customerAdd({ fullName, email, phone }) {
 
 // ========== INVOICE OPERATIONS ==========
 
-function invoiceQuery({ maxReturned = 100, depositToAccountName, customerName, txnDateStart, txnDateEnd } = {}) {
+function invoiceQuery({ maxReturned = 20, depositToAccountName, customerName, txnDateStart, txnDateEnd } = {}) {
   const inner = create().ele('InvoiceQueryRq', { requestID: 'invoice-query-1' });
   
   // Add MaxReturned
