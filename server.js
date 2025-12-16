@@ -12,7 +12,7 @@ const app = express();
 const CONFIG = {
   port: 8080,
   username: 'qbuser',
-  password: 'qbpass123',
+  password: 'qbpass',
   appName: 'QB Data Sync',
   serverURL: 'https://infinitecapi.online'
 };

@@ -6,7 +6,7 @@ module.exports = {
   
   // QuickBooks Web Connector Credentials
   username: 'qbuser',
-  password: 'qbpass123',
+  password: 'qbpass',
   
   // QuickBooks Settings
   companyFile: '', // Leave empty to use currently open company file

@@ -16,7 +16,7 @@ const service = {
         console.log('   Username:', args.strUserName);
         
         // Validate credentials
-        if (args.strUserName !== 'qbuser' || args.strPassword !== 'qbpass123') {
+        if (args.strUserName !== 'qbuser' || args.strPassword !== 'qbpass') {
           console.log('❌ Invalid credentials');
           return { authenticateResult: { string: ['nvu', ''] } };
         }
