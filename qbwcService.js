@@ -1,6 +1,6 @@
 // qbwcService.js - QB Web Connector Service
 
-const { customerQuery, itemQuery, customerAdd, itemAdd, invoiceQuery  } = require('./qbxmlBuilders');
+const { customerQuery, itemQuery, customerAdd, itemAdd, invoiceQuery,invoiceAdd  } = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
 
 let currentTicket = null;
@@ -116,11 +116,28 @@ const service = {
             qbxml = invoiceQuery({
               maxReturned: job.payload.maxReturned || 100,
               depositToAccountName: job.payload.depositToAccountName,
-              customerName: job.payload.customerName
+              customerName: job.payload.customerName,
+              dateRangePreset: job.payload.dateRangePreset,
+              txnDateStart: job.payload.txnDateStart,
+              txnDateEnd: job.payload.txnDateEnd
             });
             console.log('📝 InvoiceQuery XML generated');
             if (job.payload.depositToAccountName) {
               console.log('   Filter by deposit account:', job.payload.depositToAccountName);
+            }
+          } else if (job.type === 'InvoiceAdd') {
+            qbxml = invoiceAdd({
+              customer: job.payload.customer,
+              txnDate: job.payload.txnDate,
+              refNumber: job.payload.refNumber,
+              memo: job.payload.memo,
+              lineItems: job.payload.lineItems
+            });
+            console.log('📝 InvoiceAdd XML generated');
+            console.log('   Customer:', job.payload.customer.listId || job.payload.customer.fullName);
+            console.log('   Line Items:', job.payload.lineItems?.length || 0);
+            if (job.payload.refNumber) {
+              console.log('   Reference:', job.payload.refNumber);
             }
           }
           else {

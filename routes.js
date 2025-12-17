@@ -358,15 +358,32 @@ app.post('/api/customers', (req, res) => {
 app.post('/api/invoices/query', (req, res) => {
   try {
     const { addJob, _queue } = require('./queue');
-    const { maxReturned, depositToAccountName, customerName } = req.body || {};
     
-    // Queue invoice query job
+    // Parameters
+    let timeline = req.body?.timeline || 'last-hour';
+    let page = parseInt(req.body?.page) || 1;
+    let maxReturned = parseInt(req.body?.maxReturned) || 30;
+    
+    // QB Limitation: Max 30 per request
+    if (maxReturned > 30) {
+      maxReturned = 30;
+    }
+    
+    // Validate page
+    if (page < 1) {
+      page = 1;
+    }
+    
     addJob({
       type: 'InvoiceQuery',
       payload: {
-        maxReturned: maxReturned || 20,
-        depositToAccountName: depositToAccountName || null,
-        customerName: customerName || null
+        maxReturned: maxReturned,
+        depositToAccountName: null,
+        customerName: null,
+        dateRangePreset: timeline,
+        txnDateStart: null,
+        txnDateEnd: null,
+        page: page
       }
     });
     
@@ -374,33 +391,82 @@ app.post('/api/invoices/query', (req, res) => {
     
     res.json({
       success: true,
-      jobId: jobId,
-      message: 'Invoice query job queued',
-      filters: {
-        maxReturned: maxReturned || 20,
-        depositToAccountName: depositToAccountName || 'all',
-        customerName: customerName || 'all'
+      jobId,
+      message: `Invoice query queued for ${timeline} - page ${page}`,
+      parameters: {
+        timeline,
+        page,
+        maxPerPage: maxReturned,
+        note: 'QB max is 30 invoices per request'
       },
-      instruction: `Check /api/queue with jobId: ${jobId} to get results when done`
+      instruction: 'Check /api/queue for results after QBWC syncs',
+      pagination: {
+        currentPage: page,
+        itemsPerPage: maxReturned,
+        qbLimit: '30 invoices max per request',
+        nextPageUrl: `https://infinitecapi.online/api/invoices/fetch?timeline=${timeline}&page=${page + 1}`
+      }
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/invoices/by-deposit/:depositAccount', (req, res) => {
+app.post('/api/invoices', (req, res) => {
   try {
     const { addJob, _queue } = require('./queue');
-    const { depositAccount } = req.params;
-    const { maxReturned } = req.body || {};
+    const { customerId, txnDate, items } = req.body || {};
     
-    // Queue invoice query job with deposit filter
+    // Validation
+    if (!customerId) {
+      return res.status(400).json({ error: 'customerId is required' });
+    }
+    
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items array is required (min 1)' });
+    }
+    
+    // Validate items
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      
+      if (!item.itemId) {
+        return res.status(400).json({ error: `Item ${i + 1}: itemId is required` });
+      }
+      
+      if (item.quantity === undefined || item.quantity === null) {
+        return res.status(400).json({ error: `Item ${i + 1}: quantity is required` });
+      }
+      
+      if (item.rate === undefined || item.rate === null) {
+        return res.status(400).json({ error: `Item ${i + 1}: rate is required` });
+      }
+    }
+    
+    // Convert quick format to full format
+    const lineItems = items.map(item => ({
+      item: {
+        listId: item.itemId
+      },
+      description: item.description || '',
+      quantity: item.quantity,
+      rate: item.rate
+    }));
+    
+    // Calculate total
+    const total = lineItems.reduce((sum, line) => sum + (line.quantity * line.rate), 0);
+    
+    // Queue invoice add job
     addJob({
-      type: 'InvoiceQuery',
+      type: 'InvoiceAdd',
       payload: {
-        maxReturned: maxReturned || 100,
-        depositToAccountName: depositAccount.toUpperCase(),
-        customerName: null
+        customer: {
+          listId: customerId
+        },
+        txnDate: txnDate || null,
+        refNumber: null,
+        memo: null,
+        lineItems
       }
     });
     
@@ -408,13 +474,15 @@ app.post('/api/invoices/by-deposit/:depositAccount', (req, res) => {
     
     res.json({
       success: true,
-      jobId: jobId,
-      message: `Invoice query job queued for deposit account: ${depositAccount.toUpperCase()}`,
-      filters: {
-        depositToAccountName: depositAccount.toUpperCase(),
-        maxReturned: maxReturned || 100
+      jobId,
+      message: 'Invoice quick create job queued',
+      invoice: {
+        customerId,
+        txnDate: txnDate || 'Today',
+        lineItems: lineItems.length,
+        total: parseFloat(total.toFixed(2))
       },
-      instruction: `Check /api/queue with jobId: ${jobId} to get results when done`
+      instruction: 'Check /api/queue for results after QBWC syncs'
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

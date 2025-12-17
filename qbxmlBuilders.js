@@ -178,6 +178,87 @@ function invoiceQuery({ maxReturned = 20, depositToAccountName, customerName, tx
   return wrapRq(inner);
 }
 
+function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems }) {
+  if (!customer || (!customer.listId && !customer.fullName)) {
+    throw new Error('Customer reference (listId or fullName) is required');
+  }
+  
+  if (!lineItems || !Array.isArray(lineItems) || lineItems.length === 0) {
+    throw new Error('At least one line item is required');
+  }
+
+  const root = create();
+  const req = root.ele('InvoiceAddRq', { requestID: 'invoice-1' });
+  const add = req.ele('InvoiceAdd');
+  
+  // Add customer reference
+  const custRef = add.ele('CustomerRef');
+  if (customer.listId) {
+    custRef.ele('ListID').txt(customer.listId);
+  } else {
+    custRef.ele('FullName').txt(customer.fullName);
+  }
+  
+  // Add optional transaction date (format: YYYY-MM-DD)
+  if (txnDate) {
+    add.ele('TxnDate').txt(txnDate);
+  }
+  
+  // Add optional reference number
+  if (refNumber) {
+    add.ele('RefNumber').txt(refNumber);
+  }
+  
+  // Add optional memo
+  if (memo) {
+    add.ele('Memo').txt(memo);
+  }
+  
+  // Add line items
+  lineItems.forEach((line, index) => {
+    if (!line.item || (!line.item.listId && !line.item.fullName)) {
+      throw new Error(`Line item ${index + 1}: item reference (listId or fullName) is required`);
+    }
+    
+    if (line.quantity === undefined || line.quantity === null) {
+      throw new Error(`Line item ${index + 1}: quantity is required`);
+    }
+    
+    if (line.amount === undefined && (line.rate === undefined || line.rate === null)) {
+      throw new Error(`Line item ${index + 1}: rate or amount is required`);
+    }
+    
+    const lineAdd = add.ele('InvoiceLineAdd');
+    
+    // Add item reference
+    const itemRef = lineAdd.ele('ItemRef');
+    if (line.item.listId) {
+      itemRef.ele('ListID').txt(line.item.listId);
+    } else {
+      itemRef.ele('FullName').txt(line.item.fullName);
+    }
+    
+    // Add description (optional)
+    if (line.description) {
+      lineAdd.ele('Desc').txt(line.description);
+    }
+    
+    // Add quantity
+    lineAdd.ele('Quantity').txt(String(line.quantity));
+    
+    // Add rate or amount (ensure proper decimal formatting for QB)
+    if (line.amount !== undefined) {
+      // Format amount with 2 decimal places
+      lineAdd.ele('Amount').txt(Number(line.amount).toFixed(2));
+    } else {
+      // Format rate with 2 decimal places
+      lineAdd.ele('Rate').txt(Number(line.rate).toFixed(2));
+    }
+  });
+
+  return wrapRq(root);
+}
+
 
 
 
@@ -187,7 +268,8 @@ module.exports = {
   itemQuery,
   itemAdd,
   customerAdd,
-  invoiceQuery
+  invoiceQuery,
+  invoiceAdd
   
 
 };
