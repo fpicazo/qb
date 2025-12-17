@@ -209,10 +209,41 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems }) {
     add.ele('RefNumber').txt(refNumber);
   }
   
+  // Add optional bill to address
+  if (billTo) {
+    const billAddr = add.ele('BillAddress');
+    if (billTo.address1) billAddr.ele('Addr1').txt(billTo.address1);
+    if (billTo.address2) billAddr.ele('Addr2').txt(billTo.address2);
+    if (billTo.address3) billAddr.ele('Addr3').txt(billTo.address3);
+    if (billTo.address4) billAddr.ele('Addr4').txt(billTo.address4);
+    if (billTo.address5) billAddr.ele('Addr5').txt(billTo.address5);
+    if (billTo.city) billAddr.ele('City').txt(billTo.city);
+    if (billTo.state) billAddr.ele('State').txt(billTo.state);
+    if (billTo.postalCode) billAddr.ele('PostalCode').txt(billTo.postalCode);
+    if (billTo.country) billAddr.ele('Country').txt(billTo.country);
+    if (billTo.note) billAddr.ele('Note').txt(billTo.note);
+  }
+  
+  // Add optional ship to address
+  if (shipTo) {
+    const shipAddr = add.ele('ShipAddress');
+    if (shipTo.address1) shipAddr.ele('Addr1').txt(shipTo.address1);
+    if (shipTo.address2) shipAddr.ele('Addr2').txt(shipTo.address2);
+    if (shipTo.address3) shipAddr.ele('Addr3').txt(shipTo.address3);
+    if (shipTo.address4) shipAddr.ele('Addr4').txt(shipTo.address4);
+    if (shipTo.address5) shipAddr.ele('Addr5').txt(shipTo.address5);
+    if (shipTo.city) shipAddr.ele('City').txt(shipTo.city);
+    if (shipTo.state) shipAddr.ele('State').txt(shipTo.state);
+    if (shipTo.postalCode) shipAddr.ele('PostalCode').txt(shipTo.postalCode);
+    if (shipTo.country) shipAddr.ele('Country').txt(shipTo.country);
+    if (shipTo.note) shipAddr.ele('Note').txt(shipTo.note);
+  }
+  
   // Add optional memo
   if (memo) {
     add.ele('Memo').txt(memo);
   }
+
   
   // Add line items
   lineItems.forEach((line, index) => {

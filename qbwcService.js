@@ -131,7 +131,9 @@ const service = {
               txnDate: job.payload.txnDate,
               refNumber: job.payload.refNumber,
               memo: job.payload.memo,
-              lineItems: job.payload.lineItems
+              lineItems: job.payload.lineItems,
+              billTo: job.payload.billTo,
+              shipTo: job.payload.shipTo
             });
             console.log('📝 InvoiceAdd XML generated');
             console.log('   Customer:', job.payload.customer.listId || job.payload.customer.fullName);

@@ -415,7 +415,7 @@ app.post('/api/invoices/query', (req, res) => {
 app.post('/api/invoices', (req, res) => {
   try {
     const { addJob, _queue } = require('./queue');
-    const { customerId, txnDate, items } = req.body || {};
+    const { customerId, txnDate, items, billTo, shipTo, memo } = req.body || {};
     
     // Validation
     if (!customerId) {
@@ -465,8 +465,10 @@ app.post('/api/invoices', (req, res) => {
         },
         txnDate: txnDate || null,
         refNumber: null,
-        memo: null,
-        lineItems
+       memo: memo || null,
+        lineItems,
+        billTo: billTo || null,
+        shipTo: shipTo || null
       }
     });
     
