@@ -178,7 +178,7 @@ function invoiceQuery({ maxReturned = 20, depositToAccountName, customerName, tx
   return wrapRq(inner);
 }
 
-function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems }) {
+function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shipTo }) {
   if (!customer || (!customer.listId && !customer.fullName)) {
     throw new Error('Customer reference (listId or fullName) is required');
   }
