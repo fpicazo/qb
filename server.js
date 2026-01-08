@@ -349,11 +349,14 @@ function buildAuthenticateResponse(resultArray) {
 }
 
 function buildSimpleResponse(methodName, result) {
-  // For sendRequestXML, do NOT escape the QBXML string
+  // For sendRequestXML, the QBWC expects the QBXML embedded as a string
+  // inside <sendRequestXMLResult> (escaped as XML entities). Use
+  // escapeXml so the payload is sent as a string value.
   if (methodName === 'sendRequestXML') {
-    return `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">\n  <soap:Body>\n    <sendRequestXMLResponse xmlns="http://developer.intuit.com/">\n      <sendRequestXMLResult>${result || ''}</sendRequestXMLResult>\n    </sendRequestXMLResponse>\n  </soap:Body>\n</soap:Envelope>`;
+    return `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">\n  <soap:Body>\n    <sendRequestXMLResponse xmlns="http://developer.intuit.com/">\n      <sendRequestXMLResult>${escapeXml(result || '')}</sendRequestXMLResult>\n    </sendRequestXMLResponse>\n  </soap:Body>\n</soap:Envelope>`;
   }
-  // For all other methods, escape as before
+
+  // Default: escape result for other methods
   return `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">\n  <soap:Body>\n    <${methodName}Response xmlns="http://developer.intuit.com/">\n      <${methodName}Result>${escapeXml(result || '')}</${methodName}Result>\n    </${methodName}Response>\n  </soap:Body>\n</soap:Envelope>`;
 }
 
