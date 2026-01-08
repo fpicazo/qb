@@ -60,10 +60,11 @@ function itemQuery({ maxReturned = 100, name, nameFilter } = {}) {
   // Filter by exact name if provided (must come FIRST)
   if (name) {
     inner.ele('FullName').txt(name);
+    // When filtering by exact FullName, do NOT include MaxReturned
+  } else {
+    // Add MaxReturned only when not filtering by exact name
+    inner.ele('MaxReturned').txt(String(maxReturned));
   }
-  
-  // Add MaxReturned (comes AFTER name filters)
-  inner.ele('MaxReturned').txt(String(maxReturned));
   
   // Filter by name pattern if provided (comes AFTER MaxReturned)
   if (nameFilter && nameFilter.name) {
