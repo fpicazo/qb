@@ -326,7 +326,13 @@ app.post('/wsdl', async (req, res) => {
         console.log('='.repeat(60));
         console.log('🟩 SOAP Response');
         console.log('='.repeat(60));
-        console.log(response.substring(0, 300));
+        // If this was a sendRequestXML, log the full SOAP response for comparison
+        if (methodName === 'sendRequestXML') {
+          console.log('📡 Full SOAP response sent to QBWC:');
+          console.log(response);
+        } else {
+          console.log(response.substring(0, 300));
+        }
         console.log('='.repeat(60) + '\n');
       }
 
