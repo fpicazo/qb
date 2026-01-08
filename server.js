@@ -349,14 +349,12 @@ function buildAuthenticateResponse(resultArray) {
 }
 
 function buildSimpleResponse(methodName, result) {
-  return `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <soap:Body>
-    <${methodName}Response xmlns="http://developer.intuit.com/">
-      <${methodName}Result>${escapeXml(result || '')}</${methodName}Result>
-    </${methodName}Response>
-  </soap:Body>
-</soap:Envelope>`;
+  // For sendRequestXML, do NOT escape the QBXML string
+  if (methodName === 'sendRequestXML') {
+    return `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">\n  <soap:Body>\n    <sendRequestXMLResponse xmlns="http://developer.intuit.com/">\n      <sendRequestXMLResult>${result || ''}</sendRequestXMLResult>\n    </sendRequestXMLResponse>\n  </soap:Body>\n</soap:Envelope>`;
+  }
+  // For all other methods, escape as before
+  return `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">\n  <soap:Body>\n    <${methodName}Response xmlns="http://developer.intuit.com/">\n      <${methodName}Result>${escapeXml(result || '')}</${methodName}Result>\n    </${methodName}Response>\n  </soap:Body>\n</soap:Envelope>`;
 }
 
 function buildFaultResponse(message) {
