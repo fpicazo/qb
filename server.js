@@ -273,8 +273,12 @@ app.post('/wsdl', async (req, res) => {
     const methodName = Object.keys(body)[0];
     const params = body[methodName];
 
-    console.log(`📞 Method: ${methodName}`);
-    console.log(`📦 Params:`, JSON.stringify(params).substring(0, 200));
+    // Only log if not a closeConnection with ticket 'none'
+    const isNoOpClose = methodName === 'closeConnection' && params && params.ticket === 'none';
+    if (!isNoOpClose) {
+      console.log(`📞 Method: ${methodName}`);
+      console.log(`📦 Params:`, JSON.stringify(params).substring(0, 200));
+    }
 
     let response;
     const { service } = require('./qbwcService');
@@ -309,11 +313,14 @@ app.post('/wsdl', async (req, res) => {
         response = buildFaultResponse('Unknown method: ' + methodName);
       }
 
-      console.log('='.repeat(60));
-      console.log('🟩 SOAP Response');
-      console.log('='.repeat(60));
-      console.log(response.substring(0, 300));
-      console.log('='.repeat(60) + '\n');
+      // Only log SOAP response if not a no-op closeConnection
+      if (!isNoOpClose) {
+        console.log('='.repeat(60));
+        console.log('🟩 SOAP Response');
+        console.log('='.repeat(60));
+        console.log(response.substring(0, 300));
+        console.log('='.repeat(60) + '\n');
+      }
 
       res.set('Content-Type', 'text/xml; charset=utf-8');
       res.send(response);

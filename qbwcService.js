@@ -68,7 +68,9 @@ const service = {
 
         if (!job) {
           console.log('✅ No pending jobs');
-          return { sendRequestXMLResult: '' };
+          // Return minimal valid QBXML instead of empty string
+          const emptyQbxml = `<?xml version="1.0" encoding="utf-8"?>\n<QBXML>\n  <QBXMLMsgsRq onError="stopOnError">\n    <ItemQueryRq requestID="none">\n      <MaxReturned>0</MaxReturned>\n    </ItemQueryRq>\n  </QBXMLMsgsRq>\n</QBXML>`;
+          return { sendRequestXMLResult: emptyQbxml };
         }
 
         console.log('🔧 Processing job:', job.type, '(ID:', job.id + ')');
@@ -146,7 +148,9 @@ const service = {
             lastErrorMsg = `Unknown job type: ${job.type}`;
             console.error('❌', lastErrorMsg);
             markError(job.id, lastErrorMsg);
-            return { sendRequestXMLResult: '' };
+            // Return minimal valid QBXML instead of empty string
+            const emptyQbxml = `<?xml version="1.0" encoding="utf-8"?>\n<QBXML>\n  <QBXMLMsgsRq onError="stopOnError">\n    <ItemQueryRq requestID="error">\n      <MaxReturned>0</MaxReturned>\n    </ItemQueryRq>\n  </QBXMLMsgsRq>\n</QBXML>`;
+            return { sendRequestXMLResult: emptyQbxml };
           }
 
           // Log first 200 chars of XML for debugging
@@ -157,7 +161,9 @@ const service = {
           lastErrorMsg = `Builder error: ${e.message || e}`;
           console.error('❌', lastErrorMsg, e);
           if (job) markError(job.id, lastErrorMsg);
-          return { sendRequestXMLResult: '' };
+          // Return minimal valid QBXML instead of empty string
+          const emptyQbxml = `<?xml version="1.0" encoding="utf-8"?>\n<QBXML>\n  <QBXMLMsgsRq onError="stopOnError">\n    <ItemQueryRq requestID="builder-error">\n      <MaxReturned>0</MaxReturned>\n    </ItemQueryRq>\n  </QBXMLMsgsRq>\n</QBXML>`;
+          return { sendRequestXMLResult: emptyQbxml };
         }
       },
 
