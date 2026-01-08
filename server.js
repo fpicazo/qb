@@ -296,6 +296,14 @@ app.post('/wsdl', async (req, res) => {
         response = buildSimpleResponse('serverVersion', result.serverVersionResult);
       } else if (methodName === 'sendRequestXML') {
         const result = svc.sendRequestXML(params);
+        // Log the raw QBXML string returned by the service for inspection
+        try {
+          console.log('🔎 Raw sendRequestXMLResult (first 2000 chars):');
+          console.log(String(result.sendRequestXMLResult || '').substring(0, 2000));
+        } catch (e) {
+          console.error('❌ Failed to log raw sendRequestXMLResult:', e);
+        }
+
         response = buildSimpleResponse('sendRequestXML', result.sendRequestXMLResult);
       } else if (methodName === 'receiveResponseXML') {
         const result = svc.receiveResponseXML(params);
