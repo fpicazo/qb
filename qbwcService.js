@@ -155,6 +155,8 @@ const service = {
 
           // Log first 200 chars of XML for debugging
           console.log('📄 XML preview:', qbxml.substring(0, 200) + '...');
+          // Log full XML for debugging
+          console.log('📄 FULL XML sent to QuickBooks:\n' + qbxml);
           return { sendRequestXMLResult: qbxml };
           
         } catch (e) {
