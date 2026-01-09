@@ -224,8 +224,8 @@ function setupRoutes(app) {
       const { addJob, _queue } = require('./queue');
       const { maxReturned, name, nameFilter } = req.body || {};
       
-      // Queue customer query job
-      addJob({
+      // Queue customer query job and get job object
+      const job = addJob({
         type: 'CustomerQuery',
         payload: {
           maxReturned: maxReturned || 100,
@@ -233,20 +233,16 @@ function setupRoutes(app) {
           nameFilter: nameFilter || null
         }
       });
-      
-      // Get the job ID (last job added)
-      const jobId = _queue[_queue.length - 1].id;
-      
       res.json({
         success: true,
-        jobId: jobId,
+        jobId: job.id,
         message: 'Customer fetch job queued',
         filters: {
           maxReturned: maxReturned || 100,
           name: name || null,
           nameFilter: nameFilter || null
         },
-        instruction: `Check /api/queue with jobId: ${jobId} to get results when done`
+        instruction: `Check /api/queue with jobId: ${job.id} to get results when done`
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -274,14 +270,14 @@ function setupRoutes(app) {
       payload.nameFilter = nameFilter;
     }
     
-    // Queue the query job
-    addJob({
+    // Queue the query job and get job object
+    const job = addJob({
       type: 'ItemQuery',
       payload
     });
-    
     res.json({ 
       success: true, 
+      jobId: job.id,
       message: 'Item query job queued',
       filters: payload,
       note: 'Check /api/queue for results after QBWC processes'
@@ -313,8 +309,8 @@ app.post('/api/items', (req, res) => {
       });
     }
     
-    // Queue the job
-    addJob({
+    // Queue the job and get job object
+    const job = addJob({
       type: 'ItemAdd',
       payload: {
         type,
@@ -324,9 +320,9 @@ app.post('/api/items', (req, res) => {
         account  // Add account support
       }
     });
-    
     res.json({ 
       success: true, 
+      jobId: job.id,
       message: `Item add job queued for: ${name}`,
       itemType: type
     });
@@ -344,12 +340,11 @@ app.post('/api/customers', (req, res) => {
       return res.status(400).json({ error: 'fullName is required' });
     }
     
-    addJob({
+    const job = addJob({
       type: 'CustomerAdd',
       payload: { fullName, email: email || '', phone: phone || '' }
     });
-    
-    res.json({ success: true, message: 'Customer add job queued' });
+    res.json({ success: true, jobId: job.id, message: 'Customer add job queued' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -374,7 +369,7 @@ app.post('/api/invoices/query', (req, res) => {
       page = 1;
     }
     
-    addJob({
+    const job = addJob({
       type: 'InvoiceQuery',
       payload: {
         maxReturned: maxReturned,
@@ -386,12 +381,9 @@ app.post('/api/invoices/query', (req, res) => {
         page: page
       }
     });
-    
-    const jobId = _queue[_queue.length - 1].id;
-    
     res.json({
       success: true,
-      jobId,
+      jobId: job.id,
       message: `Invoice query queued for ${timeline} - page ${page}`,
       parameters: {
         timeline,
@@ -457,7 +449,7 @@ app.post('/api/invoices', (req, res) => {
     const total = lineItems.reduce((sum, line) => sum + (line.quantity * line.rate), 0);
     
     // Queue invoice add job
-    addJob({
+    const job = addJob({
       type: 'InvoiceAdd',
       payload: {
         customer: {
@@ -465,18 +457,15 @@ app.post('/api/invoices', (req, res) => {
         },
         txnDate: txnDate || null,
         refNumber: null,
-       memo: memo || null,
+        memo: memo || null,
         lineItems,
         billTo: billTo || null,
         shipTo: shipTo || null
       }
     });
-    
-    const jobId = _queue[_queue.length - 1].id;
-    
     res.json({
       success: true,
-      jobId,
+      jobId: job.id,
       message: 'Invoice quick create job queued',
       invoice: {
         customerId,
