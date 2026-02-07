@@ -5,6 +5,23 @@ const config = require('./config');
 
 // Setup routes
 function setupRoutes(app) {
+  function getQbConnectionStatus() {
+    const { getConnectionStatus } = require('./qbwcService');
+    return getConnectionStatus();
+  }
+
+  function queueJobWithConnectionGuard(job) {
+    const rejectWhenOffline = config?.connection?.rejectNewJobsWhenOffline !== false;
+    const connection = getQbConnectionStatus();
+
+    if (rejectWhenOffline && !connection.allowNewJobs) {
+      return { accepted: false, connection };
+    }
+
+    const { addJob } = require('./queue');
+    const queuedJob = addJob(job);
+    return { accepted: true, queuedJob, connection };
+  }
   
   // Home page - Web interface
   app.get('/', (req, res) => {
@@ -221,11 +238,10 @@ function setupRoutes(app) {
   // ========== FETCH CUSTOMERS ENDPOINT ==========
   app.post('/api/customers/query', (req, res) => {
     try {
-      const { addJob, _queue } = require('./queue');
       const { maxReturned, name, nameFilter } = req.body || {};
       
       // Queue customer query job and get job object
-      const job = addJob({
+      const queued = queueJobWithConnectionGuard({
         type: 'CustomerQuery',
         payload: {
           maxReturned: maxReturned || 100,
@@ -233,6 +249,16 @@ function setupRoutes(app) {
           nameFilter: nameFilter || null
         }
       });
+
+      if (!queued.accepted) {
+        return res.status(503).json({
+          success: false,
+          error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+          quickbooks: queued.connection
+        });
+      }
+
+      const job = queued.queuedJob;
       res.json({
         success: true,
         jobId: job.id,
@@ -252,7 +278,6 @@ function setupRoutes(app) {
 // ==========ITEMS ==========
   app.post('/api/items/query', (req, res) => {
   try {
-    const { addJob } = require('./queue');
     const { maxReturned, name, nameFilter } = req.body || {};
     
     // Build payload
@@ -271,10 +296,18 @@ function setupRoutes(app) {
     }
     
     // Queue the query job and get job object
-    const job = addJob({
+    const queued = queueJobWithConnectionGuard({
       type: 'ItemQuery',
       payload
     });
+    if (!queued.accepted) {
+      return res.status(503).json({
+        success: false,
+        error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+        quickbooks: queued.connection
+      });
+    }
+    const job = queued.queuedJob;
     res.json({ 
       success: true, 
       jobId: job.id,
@@ -289,7 +322,6 @@ function setupRoutes(app) {
 
 app.post('/api/items', (req, res) => {
   try {
-    const { addJob } = require('./queue');
     const { type, name, description, price, account } = req.body;
     
     // Validate required fields
@@ -310,7 +342,7 @@ app.post('/api/items', (req, res) => {
     }
     
     // Queue the job and get job object
-    const job = addJob({
+    const queued = queueJobWithConnectionGuard({
       type: 'ItemAdd',
       payload: {
         type,
@@ -320,6 +352,14 @@ app.post('/api/items', (req, res) => {
         account  // Add account support
       }
     });
+    if (!queued.accepted) {
+      return res.status(503).json({
+        success: false,
+        error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+        quickbooks: queued.connection
+      });
+    }
+    const job = queued.queuedJob;
     res.json({ 
       success: true, 
       jobId: job.id,
@@ -333,17 +373,24 @@ app.post('/api/items', (req, res) => {
 
 app.post('/api/customers', (req, res) => {
   try {
-    const { addJob } = require('./queue');
     const { fullName, email, phone } = req.body;
     
     if (!fullName) {
       return res.status(400).json({ error: 'fullName is required' });
     }
     
-    const job = addJob({
+    const queued = queueJobWithConnectionGuard({
       type: 'CustomerAdd',
       payload: { fullName, email: email || '', phone: phone || '' }
     });
+    if (!queued.accepted) {
+      return res.status(503).json({
+        success: false,
+        error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+        quickbooks: queued.connection
+      });
+    }
+    const job = queued.queuedJob;
     res.json({ success: true, jobId: job.id, message: 'Customer add job queued' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -352,8 +399,6 @@ app.post('/api/customers', (req, res) => {
 
 app.post('/api/invoices/query', (req, res) => {
   try {
-    const { addJob, _queue } = require('./queue');
-    
     // Parameters
     let timeline = req.body?.timeline || 'last-hour';
     let page = parseInt(req.body?.page) || 1;
@@ -369,7 +414,7 @@ app.post('/api/invoices/query', (req, res) => {
       page = 1;
     }
     
-    const job = addJob({
+    const queued = queueJobWithConnectionGuard({
       type: 'InvoiceQuery',
       payload: {
         maxReturned: maxReturned,
@@ -381,6 +426,14 @@ app.post('/api/invoices/query', (req, res) => {
         page: page
       }
     });
+    if (!queued.accepted) {
+      return res.status(503).json({
+        success: false,
+        error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+        quickbooks: queued.connection
+      });
+    }
+    const job = queued.queuedJob;
     res.json({
       success: true,
       jobId: job.id,
@@ -406,7 +459,6 @@ app.post('/api/invoices/query', (req, res) => {
 
 app.post('/api/invoices', (req, res) => {
   try {
-    const { addJob, _queue } = require('./queue');
     const { customerId, txnDate, items, billTo, shipTo, memo } = req.body || {};
     
     // Validation
@@ -449,7 +501,7 @@ app.post('/api/invoices', (req, res) => {
     const total = lineItems.reduce((sum, line) => sum + (line.quantity * line.rate), 0);
     
     // Queue invoice add job
-    const job = addJob({
+    const queued = queueJobWithConnectionGuard({
       type: 'InvoiceAdd',
       payload: {
         customer: {
@@ -463,6 +515,14 @@ app.post('/api/invoices', (req, res) => {
         shipTo: shipTo || null
       }
     });
+    if (!queued.accepted) {
+      return res.status(503).json({
+        success: false,
+        error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+        quickbooks: queued.connection
+      });
+    }
+    const job = queued.queuedJob;
     res.json({
       success: true,
       jobId: job.id,
@@ -491,6 +551,18 @@ app.post('/api/invoices', (req, res) => {
         success: true,
         count: _queue.length,
         queue: _queue
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/qb/connection-status', (req, res) => {
+    try {
+      const connection = getQbConnectionStatus();
+      res.json({
+        success: true,
+        quickbooks: connection
       });
     } catch (error) {
       res.status(500).json({ error: error.message });

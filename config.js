@@ -27,5 +27,11 @@ module.exports = {
   scheduler: {
     runEveryMinutes: 30,
     allowConcurrentRuns: false
+  },
+
+  // Queue protection when QBWC has not connected recently
+  connection: {
+    maxOfflineMinutesBeforePause: 10,
+    rejectNewJobsWhenOffline: true
   }
 };

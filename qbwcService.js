@@ -2,16 +2,47 @@
 
 const { customerQuery, itemQuery, customerAdd, itemAdd, invoiceQuery,invoiceAdd  } = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
+const config = require('./config');
 
 let currentTicket = null;
 let lastErrorMsg = '';
 let lastJob = null;
+
+let lastSeenAt = Date.now();
+let hasSeenQbwcTraffic = false;
+const offlineCutoffMinutes = Math.max(1, Number(config?.connection?.maxOfflineMinutesBeforePause) || 10);
+
+function markQbwcActivity(source) {
+  hasSeenQbwcTraffic = true;
+  lastSeenAt = Date.now();
+  if (source) {
+    console.log(`QBWC activity: ${source}`);
+  }
+}
+
+function getConnectionStatus() {
+  const now = Date.now();
+  const lastSeenIso = lastSeenAt ? new Date(lastSeenAt).toISOString() : null;
+  const offlineMs = lastSeenAt ? now - lastSeenAt : Number.POSITIVE_INFINITY;
+  const offlineMinutes = Number.isFinite(offlineMs) ? Math.floor(offlineMs / 60000) : null;
+  const allowNewJobs = offlineMs <= (offlineCutoffMinutes * 60 * 1000);
+
+  return {
+    hasSeenQbwcTraffic,
+    connectedRecently: hasSeenQbwcTraffic && allowNewJobs,
+    allowNewJobs,
+    offlineCutoffMinutes,
+    lastSeenAt: lastSeenIso,
+    offlineMinutes
+  };
+}
 
 const service = {
   QBWebConnectorSvc: {
     QBWebConnectorSvcSoap: {
       // ---- Handshake ----
       authenticate(args) {
+        markQbwcActivity('authenticate');
         console.log('🔐 Authenticate called');
         console.log('   Username:', args.strUserName);
         
@@ -40,17 +71,20 @@ const service = {
       },
 
       clientVersion(args) {
+        markQbwcActivity('clientVersion');
         console.log('📱 Client version:', args.strVersion);
         return { clientVersionResult: '' };
       },
 
       serverVersion(args) {
+        markQbwcActivity('serverVersion');
         console.log('🖥️  Server version requested');
         return { serverVersionResult: '1.0.0' };
       },
 
       // ---- Work request ----
       sendRequestXML(args) {
+        markQbwcActivity('sendRequestXML');
         console.log('📤 sendRequestXML called');
         console.log('   Ticket:', args.ticket);
         
@@ -171,6 +205,7 @@ const service = {
 
       // ---- QB response ----
       receiveResponseXML(args) {
+        markQbwcActivity('receiveResponseXML');
         console.log('📥 receiveResponseXML called');
         console.log('   HRESULT:', args.hresult || '(none)');
         console.log('   Message:', args.message || '(none)');
@@ -231,6 +266,7 @@ const service = {
 
       // ---- Close connection ----
       closeConnection(args) {
+        markQbwcActivity('closeConnection');
         console.log('👋 closeConnection called');
         lastJob = null;
         currentTicket = null;
@@ -239,12 +275,14 @@ const service = {
 
       // ---- Error handling ----
       getLastError(args) {
+        markQbwcActivity('getLastError');
         console.log('🔍 getLastError called');
         console.log('   Error:', lastErrorMsg || '(none)');
         return { getLastErrorResult: lastErrorMsg || '' };
       },
 
       connectionError(args) {
+        markQbwcActivity('connectionError');
         lastErrorMsg = `Connection error: ${args?.hresult || ''} ${args?.message || ''}`.trim();
         console.error('❌ Connection error:', lastErrorMsg);
         return { connectionErrorResult: 'done' };
@@ -253,4 +291,7 @@ const service = {
   }
 };
 
-module.exports = { service };
+module.exports = {
+  service,
+  getConnectionStatus
+};
