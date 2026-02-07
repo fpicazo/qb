@@ -421,6 +421,7 @@ try {
     console.log('📡 API Endpoints:');
     console.log('   POST /api/customers/fetch - Queue customer fetch');
     console.log('   GET  /api/queue           - View queue status\n');
+    console.log('   GET  /api/qb/connection-status       View QuickBooks connection status\n');
   });
 } catch (err) {
   console.error('\n❌ HTTPS Server Creation Error:', err.message);
