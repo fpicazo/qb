@@ -1,6 +1,7 @@
 // routes.js - Web interface routes
 
 const { v4: uuidv4 } = require('uuid');
+const { parseString } = require('xml2js');
 const config = require('./config');
 
 // Setup routes
@@ -21,6 +22,51 @@ function setupRoutes(app) {
     const { addJob } = require('./queue');
     const queuedJob = addJob(job);
     return { accepted: true, queuedJob, connection };
+  }
+
+  function toArray(value) {
+    if (!value) return [];
+    return Array.isArray(value) ? value : [value];
+  }
+
+  function parseItemGroupProducts(rawXml) {
+    return new Promise((resolve, reject) => {
+      parseString(rawXml, { explicitArray: false }, (err, result) => {
+        if (err) return reject(err);
+
+        const rs = result?.QBXML?.QBXMLMsgsRs?.ItemQueryRs || {};
+        const groups = toArray(rs.ItemGroupRet);
+
+        if (groups.length === 0) {
+          return resolve({
+            groupCount: 0,
+            groups: [],
+            products: []
+          });
+        }
+
+        const normalizedGroups = groups.map((group) => {
+          const lines = toArray(group.ItemGroupLineRet || group.ItemGroupLine).map((line) => ({
+            itemId: line?.ItemRef?.ListID || null,
+            name: line?.ItemRef?.FullName || line?.ItemRef?.Name || null,
+            quantity: line?.Quantity !== undefined ? Number(line.Quantity) : null
+          }));
+
+          return {
+            itemId: group.ListID || null,
+            fullName: group.FullName || null,
+            name: group.Name || null,
+            products: lines
+          };
+        });
+
+        return resolve({
+          groupCount: normalizedGroups.length,
+          groups: normalizedGroups,
+          products: normalizedGroups[0]?.products || []
+        });
+      });
+    });
   }
   
   // Home page - Web interface
@@ -317,6 +363,70 @@ function setupRoutes(app) {
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/items/group-products/:itemId', async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    if (!itemId) {
+      return res.status(400).json({ error: 'itemId is required in route param' });
+    }
+
+    const { _queue } = require('./queue');
+
+    const sameItemJobs = _queue
+      .filter((job) => job.type === 'ItemGroupProductsQuery' && String(job?.payload?.itemId) === String(itemId))
+      .sort((a, b) => Number(b.id) - Number(a.id));
+
+    const existingDone = sameItemJobs.find((job) => job.status === 'done' && job?.result?.raw);
+    if (existingDone) {
+      const parsed = await parseItemGroupProducts(existingDone.result.raw);
+      return res.json({
+        success: true,
+        source: 'cache',
+        jobId: existingDone.id,
+        itemId,
+        ...parsed
+      });
+    }
+
+    const existingRunning = sameItemJobs.find((job) => job.status === 'pending' || job.status === 'processing');
+    if (existingRunning) {
+      return res.status(202).json({
+        success: true,
+        itemId,
+        jobId: existingRunning.id,
+        status: existingRunning.status,
+        message: 'A group-product query for this item is already in progress.',
+        instruction: `Check /api/queue with jobId: ${existingRunning.id}`
+      });
+    }
+
+    const queued = queueJobWithConnectionGuard({
+      type: 'ItemGroupProductsQuery',
+      payload: { itemId }
+    });
+
+    if (!queued.accepted) {
+      return res.status(503).json({
+        success: false,
+        error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+        quickbooks: queued.connection
+      });
+    }
+
+    const job = queued.queuedJob;
+    return res.status(202).json({
+      success: true,
+      itemId,
+      jobId: job.id,
+      status: job.status,
+      message: 'Item group product query job queued.',
+      instruction: `Re-call GET /api/items/group-products/${encodeURIComponent(itemId)} after QBWC syncs, or check /api/queue with jobId: ${job.id}`
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
 });
 

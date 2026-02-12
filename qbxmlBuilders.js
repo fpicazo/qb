@@ -86,6 +86,19 @@ function itemQuery({ maxReturned = 100, name, nameFilter } = {}) {
   return wrapRq(inner);
 }
 
+function itemGroupProductsQuery({ itemId } = {}) {
+  if (!itemId) {
+    throw new Error('itemId is required');
+  }
+
+  const inner = create().ele('ItemQueryRq', { requestID: 'item-group-products-query-1' });
+  inner.ele('ListID').txt(String(itemId));
+
+  // Intentionally do not use IncludeRetElement here so QB returns full ItemGroupLineRet data.
+  inner.up();
+  return wrapRq(inner);
+}
+
 function itemAdd({ type = 'Service', name, description, price, account }) {
   if (!name) throw new Error('Item name is required');
   
@@ -298,6 +311,7 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
 module.exports = { 
   customerQuery,
   itemQuery,
+  itemGroupProductsQuery,
   itemAdd,
   customerAdd,
   invoiceQuery,

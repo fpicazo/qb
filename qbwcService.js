@@ -1,6 +1,14 @@
 // qbwcService.js - QB Web Connector Service
 
-const { customerQuery, itemQuery, customerAdd, itemAdd, invoiceQuery,invoiceAdd  } = require('./qbxmlBuilders');
+const {
+  customerQuery,
+  itemQuery,
+  itemGroupProductsQuery,
+  customerAdd,
+  itemAdd,
+  invoiceQuery,
+  invoiceAdd
+} = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
 const config = require('./config');
 
@@ -137,6 +145,13 @@ const service = {
               nameFilter: job.payload.nameFilter
             });
             console.log('📝 ItemQuery XML generated');
+          }
+          else if (job.type === 'ItemGroupProductsQuery') {
+            qbxml = itemGroupProductsQuery({
+              itemId: job.payload.itemId
+            });
+            console.log('📝 ItemGroupProductsQuery XML generated');
+            console.log('   Item ListID:', job.payload.itemId);
           }
           else if (job.type === 'ItemAdd') {
             qbxml = itemAdd({
