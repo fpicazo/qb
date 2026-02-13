@@ -417,7 +417,7 @@ try {
     console.log(`📤 SOAP: ${CONFIG.serverURL}/wsdl`);
     console.log(`👤 User: ${CONFIG.username}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-    console.log('✅ Ready for QBWC connection!\n');
+    console.log('✅ Ready for QBWC connection!\n'); 
     console.log('📡 API Endpoints:');
     console.log('   POST /api/customers/fetch - Queue customer fetch');
     console.log('   GET  /api/queue           - View queue status\n');
