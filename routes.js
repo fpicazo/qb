@@ -325,7 +325,13 @@ function setupRoutes(app) {
   app.post('/api/items/query', (req, res) => {
   try {
     const { maxReturned, name, nameFilter } = req.body || {};
-    const normalizedName = typeof name === 'string' ? name.trim() : name;
+    const normalizedName = typeof name === 'string'
+      ? name
+          .replace(/\u00A0/g, ' ')
+          .replace(/[\u200B-\u200D\uFEFF]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+      : name;
     
     // Build payload
     const payload = {
@@ -334,8 +340,12 @@ function setupRoutes(app) {
     
     // Auto search strategy: exact first, then contains fallback if exact returns no rows
     if (normalizedName && !nameFilter) {
+      const primaryToken = normalizedName.includes(',')
+        ? normalizedName.split(',')[0].trim()
+        : null;
       payload.autoTryExactContains = true;
       payload.searchTerm = normalizedName;
+      payload.searchPrimaryToken = primaryToken || null;
       payload.searchAttempt = 'exact';
     } else if (normalizedName) {
       payload.name = normalizedName;
@@ -365,7 +375,7 @@ function setupRoutes(app) {
       message: 'Item query job queued',
       filters: payload,
       note: payload.autoTryExactContains
-        ? 'Auto strategy enabled: exact search first, then contains fallback if exact has no results.'
+        ? 'Auto strategy enabled: exact search first, then contains fallback(s) if exact has no results.'
         : 'Check /api/queue for results after QBWC processes'
     });
   } catch (error) {

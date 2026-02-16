@@ -50,6 +50,15 @@ function itemQueryHasResults(xmlResponse) {
   return /<Item[A-Za-z]*Ret\b/.test(xmlResponse);
 }
 
+function normalizeLookupText(value) {
+  if (value === null || value === undefined) return value;
+  return String(value)
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const service = {
   QBWebConnectorSvc: {
     QBWebConnectorSvcSoap: {
@@ -151,16 +160,24 @@ const service = {
 
             if (autoTryEnabled) {
               const attempt = job.payload.searchAttempt || 'exact';
+              const searchTerm = normalizeLookupText(job.payload.searchTerm);
+              const primaryToken = normalizeLookupText(job.payload.searchPrimaryToken);
               if (attempt === 'contains') {
                 queryPayload.nameFilter = {
-                  name: job.payload.searchTerm,
+                  name: searchTerm,
                   matchCriterion: 'Contains'
                 };
-                console.log('   ItemQuery attempt: contains "' + job.payload.searchTerm + '"');
+                console.log('   ItemQuery attempt: contains "' + searchTerm + '"');
+              } else if (attempt === 'contains-primary-token') {
+                queryPayload.nameFilter = {
+                  name: primaryToken || searchTerm,
+                  matchCriterion: 'Contains'
+                };
+                console.log('   ItemQuery attempt: contains primary token "' + (primaryToken || searchTerm) + '"');
               } else {
                 job.payload.searchAttempt = 'exact';
-                queryPayload.name = job.payload.searchTerm;
-                console.log('   ItemQuery attempt: exact "' + job.payload.searchTerm + '"');
+                queryPayload.name = searchTerm;
+                console.log('   ItemQuery attempt: exact "' + searchTerm + '"');
               }
             } else {
               queryPayload.name = job.payload.name;
@@ -285,6 +302,12 @@ const service = {
               if (isAutoItemRetry) {
                 const attempt = lastJob.payload.searchAttempt || 'exact';
                 const hasItems = itemQueryHasResults(xmlResponse);
+                const primaryToken = normalizeLookupText(lastJob.payload.searchPrimaryToken);
+                const searchTerm = normalizeLookupText(lastJob.payload.searchTerm);
+                const hasTokenFallback =
+                  Boolean(primaryToken) &&
+                  Boolean(searchTerm) &&
+                  primaryToken.toLowerCase() !== searchTerm.toLowerCase();
 
                 if (!hasItems && attempt === 'exact') {
                   lastJob.payload.searchAttempt = 'contains';
@@ -296,8 +319,24 @@ const service = {
                     firstAttemptRaw: xmlResponse
                   };
                   console.log('No exact item match for "' + lastJob.payload.searchTerm + '". Re-queueing with Contains.');
+                } else if (!hasItems && attempt === 'contains' && hasTokenFallback) {
+                  lastJob.payload.searchAttempt = 'contains-primary-token';
+                  lastJob.status = 'pending';
+                  lastJob.result = {
+                    ...(lastJob.result || {}),
+                    secondAttempt: 'contains',
+                    secondAttemptFoundItems: false,
+                    secondAttemptRaw: xmlResponse
+                  };
+                  console.log(
+                    'No contains-full match for "' +
+                    lastJob.payload.searchTerm +
+                    '". Re-queueing with primary token "' +
+                    primaryToken +
+                    '".'
+                  );
                 } else {
-                  const fallbackUsed = attempt === 'contains';
+                  const fallbackUsed = attempt === 'contains' || attempt === 'contains-primary-token';
                   console.log('Job completed: ' + lastJob.id + (fallbackUsed ? ' (contains fallback used)' : ''));
                   markDone(lastJob.id, {
                     raw: args.response,

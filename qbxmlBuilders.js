@@ -1,5 +1,14 @@
 const { create } = require('xmlbuilder2');
 
+function normalizeLookupText(value) {
+  if (value === null || value === undefined) return value;
+  return String(value)
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function wrapRq(inner, version = '13.0') {
   // Build the QBXML without XML declaration first
   const doc = create()
@@ -53,24 +62,29 @@ function customerQuery({ maxReturned = 100, name, nameFilter } = {}) {
 
 function itemQuery({ maxReturned = 100, name, nameFilter } = {}) {
   const inner = create().ele('ItemQueryRq', { requestID: 'item-query-1' });
+  const normalizedName = normalizeLookupText(name);
+  const normalizedFilterName = normalizeLookupText(nameFilter && nameFilter.name);
   
   // IMPORTANT: QBXML requires specific element order!
   // Order: FullName/ListID → MaxReturned → NameFilter → IncludeRetElement
   
   // Filter by exact name if provided (must come FIRST)
-  if (name) {
-    inner.ele('FullName').txt(name);
+  if (normalizedName) {
+    inner.ele('FullName').txt(normalizedName);
     // When filtering by exact FullName, do NOT include MaxReturned
   } else {
     // Add MaxReturned only when not filtering by exact name
     inner.ele('MaxReturned').txt(String(maxReturned));
   }
+
+  // Include inactive items too (default is ActiveOnly in many QB setups).
+  inner.ele('ActiveStatus').txt('All');
   
   // Filter by name pattern if provided (comes AFTER MaxReturned)
-  if (nameFilter && nameFilter.name) {
+  if (normalizedFilterName) {
     const filter = inner.ele('NameFilter');
     filter.ele('MatchCriterion').txt(nameFilter.matchCriterion || 'StartsWith');
-    filter.ele('Name').txt(nameFilter.name);
+    filter.ele('Name').txt(normalizedFilterName);
   }
   
   // Request specific fields (must come LAST)
