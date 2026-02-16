@@ -325,17 +325,22 @@ function setupRoutes(app) {
   app.post('/api/items/query', (req, res) => {
   try {
     const { maxReturned, name, nameFilter } = req.body || {};
+    const normalizedName = typeof name === 'string' ? name.trim() : name;
     
     // Build payload
     const payload = {
       maxReturned: maxReturned || 100
     };
     
-    // Add exact name filter if provided
-    if (name) {
-      payload.name = name;
+    // Auto search strategy: exact first, then contains fallback if exact returns no rows
+    if (normalizedName && !nameFilter) {
+      payload.autoTryExactContains = true;
+      payload.searchTerm = normalizedName;
+      payload.searchAttempt = 'exact';
+    } else if (normalizedName) {
+      payload.name = normalizedName;
     }
-    
+
     // Add pattern-based name filter if provided
     if (nameFilter) {
       payload.nameFilter = nameFilter;
@@ -359,7 +364,9 @@ function setupRoutes(app) {
       jobId: job.id,
       message: 'Item query job queued',
       filters: payload,
-      note: 'Check /api/queue for results after QBWC processes'
+      note: payload.autoTryExactContains
+        ? 'Auto strategy enabled: exact search first, then contains fallback if exact has no results.'
+        : 'Check /api/queue for results after QBWC processes'
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

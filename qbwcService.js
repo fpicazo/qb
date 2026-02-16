@@ -45,6 +45,11 @@ function getConnectionStatus() {
   };
 }
 
+function itemQueryHasResults(xmlResponse) {
+  if (!xmlResponse) return false;
+  return /<Item[A-Za-z]*Ret\b/.test(xmlResponse);
+}
+
 const service = {
   QBWebConnectorSvc: {
     QBWebConnectorSvcSoap: {
@@ -139,12 +144,31 @@ const service = {
             console.log('   Customer:', job.payload.fullName);
           }
           else if (job.type === 'ItemQuery') {
-            qbxml = itemQuery({
-              maxReturned: job.payload.maxReturned || 100,
-              name: job.payload.name,
-              nameFilter: job.payload.nameFilter
-            });
-            console.log('📝 ItemQuery XML generated');
+            const queryPayload = {
+              maxReturned: job.payload.maxReturned || 100
+            };
+            const autoTryEnabled = Boolean(job.payload && job.payload.autoTryExactContains && job.payload.searchTerm);
+
+            if (autoTryEnabled) {
+              const attempt = job.payload.searchAttempt || 'exact';
+              if (attempt === 'contains') {
+                queryPayload.nameFilter = {
+                  name: job.payload.searchTerm,
+                  matchCriterion: 'Contains'
+                };
+                console.log('   ItemQuery attempt: contains "' + job.payload.searchTerm + '"');
+              } else {
+                job.payload.searchAttempt = 'exact';
+                queryPayload.name = job.payload.searchTerm;
+                console.log('   ItemQuery attempt: exact "' + job.payload.searchTerm + '"');
+              }
+            } else {
+              queryPayload.name = job.payload.name;
+              queryPayload.nameFilter = job.payload.nameFilter;
+            }
+
+            qbxml = itemQuery(queryPayload);
+            console.log('ItemQuery XML generated');
           }
           else if (job.type === 'ItemGroupProductsQuery') {
             qbxml = itemGroupProductsQuery({
@@ -221,7 +245,7 @@ const service = {
       // ---- QB response ----
       receiveResponseXML(args) {
         markQbwcActivity('receiveResponseXML');
-        console.log('📥 receiveResponseXML called');
+        console.log('receiveResponseXML called');
         console.log('   HRESULT:', args.hresult || '(none)');
         console.log('   Message:', args.message || '(none)');
         
@@ -229,7 +253,7 @@ const service = {
           // Check for QB error
           if (args.hresult && String(args.hresult).trim() !== '') {
             lastErrorMsg = `QB Error ${args.hresult}: ${args.message || 'Unknown error'}`;
-            console.error('❌', lastErrorMsg);
+            console.error('Error:', lastErrorMsg);
             if (lastJob) {
               markError(lastJob.id, lastErrorMsg);
             }
@@ -239,33 +263,66 @@ const service = {
             const hasError = xmlResponse.includes('statusSeverity="Error"');
             
             if (hasError) {
-              // Extract error details from XML
               const statusCodeMatch = xmlResponse.match(/statusCode="(\d+)"/);
               const statusMessageMatch = xmlResponse.match(/statusMessage="([^"]+)"/);
               const statusCode = statusCodeMatch ? statusCodeMatch[1] : 'unknown';
               const statusMessage = statusMessageMatch ? statusMessageMatch[1] : 'Unknown error';
-              
+
               lastErrorMsg = `QB Operation Error ${statusCode}: ${statusMessage}`;
-              console.error('❌', lastErrorMsg);
-              
+              console.error('Error:', lastErrorMsg);
+
               if (lastJob) {
                 markError(lastJob.id, lastErrorMsg);
               }
             } else {
-              // Success
-              console.log('✅ Job completed:', lastJob?.id);
-              if (lastJob) {
-                markDone(lastJob.id, { raw: args.response });
-                // Log response preview
-                if (args.response) {
-                  console.log('📄 Response preview:', args.response.substring(0, 200) + '...');
+              const isAutoItemRetry =
+                lastJob &&
+                lastJob.type === 'ItemQuery' &&
+                lastJob.payload &&
+                lastJob.payload.autoTryExactContains &&
+                lastJob.payload.searchTerm;
+
+              if (isAutoItemRetry) {
+                const attempt = lastJob.payload.searchAttempt || 'exact';
+                const hasItems = itemQueryHasResults(xmlResponse);
+
+                if (!hasItems && attempt === 'exact') {
+                  lastJob.payload.searchAttempt = 'contains';
+                  lastJob.status = 'pending';
+                  lastJob.result = {
+                    ...(lastJob.result || {}),
+                    firstAttempt: 'exact',
+                    firstAttemptFoundItems: false,
+                    firstAttemptRaw: xmlResponse
+                  };
+                  console.log('No exact item match for "' + lastJob.payload.searchTerm + '". Re-queueing with Contains.');
+                } else {
+                  const fallbackUsed = attempt === 'contains';
+                  console.log('Job completed: ' + lastJob.id + (fallbackUsed ? ' (contains fallback used)' : ''));
+                  markDone(lastJob.id, {
+                    raw: args.response,
+                    autoTryExactContains: true,
+                    finalAttempt: attempt,
+                    fallbackUsed
+                  });
+                  if (args.response) {
+                    console.log('Response preview:', args.response.substring(0, 200) + '...');
+                  }
+                }
+              } else {
+                console.log('Job completed:', lastJob && lastJob.id);
+                if (lastJob) {
+                  markDone(lastJob.id, { raw: args.response });
+                  if (args.response) {
+                    console.log('Response preview:', args.response.substring(0, 200) + '...');
+                  }
                 }
               }
             }
           }
         } catch (e) {
           lastErrorMsg = `receiveResponseXML error: ${e.message || e}`;
-          console.error('❌', lastErrorMsg);
+          console.error('Error:', lastErrorMsg);
           if (lastJob) {
             markError(lastJob.id, lastErrorMsg);
           }
@@ -274,8 +331,8 @@ const service = {
         // Return progress
         const more = _queue.some(j => j.status === 'pending');
         const progress = more ? '10' : '100';
-        console.log(`📊 Progress: ${progress}% (${more ? 'more jobs pending' : 'all done'})`);
-        
+        console.log(`Progress: ${progress}% (${more ? 'more jobs pending' : 'all done'})`);
+
         return { receiveResponseXMLResult: progress };
       },
 
