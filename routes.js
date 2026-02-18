@@ -584,9 +584,9 @@ app.post('/api/invoices/query', (req, res) => {
   }
 });
 
-app.post('/api/invoices', (req, res) => {
+  app.post('/api/invoices', (req, res) => {
   try {
-    const { customerId, txnDate, items, billTo, shipTo, memo } = req.body || {};
+    const { customerId, txnDate, items, billTo, shipTo, memo, nonTaxable } = req.body || {};
     
     // Validation
     if (!customerId) {
@@ -595,6 +595,10 @@ app.post('/api/invoices', (req, res) => {
     
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'items array is required (min 1)' });
+    }
+
+    if (nonTaxable !== undefined && nonTaxable !== null && typeof nonTaxable !== 'boolean') {
+      return res.status(400).json({ error: 'nonTaxable must be boolean when provided' });
     }
     
     // Validate items
@@ -613,18 +617,33 @@ app.post('/api/invoices', (req, res) => {
         return res.status(400).json({ error: `Item ${i + 1}: rate is required` });
       }
 
-      if (item.taxable !== undefined && item.taxable !== null && typeof item.taxable !== 'boolean') {
-        return res.status(400).json({ error: `Item ${i + 1}: taxable must be boolean when provided` });
+      const rawTaxable = item.taxable !== undefined ? item.taxable : item.isTaxable;
+      const taxableLooksValid =
+        rawTaxable === undefined ||
+        rawTaxable === null ||
+        typeof rawTaxable === 'boolean' ||
+        rawTaxable === 'true' ||
+        rawTaxable === 'false' ||
+        rawTaxable === '1' ||
+        rawTaxable === '0' ||
+        rawTaxable === 1 ||
+        rawTaxable === 0;
+
+      if (!taxableLooksValid) {
+        return res.status(400).json({
+          error: `Item ${i + 1}: taxable/isTaxable must be boolean (or 'true'/'false'/'1'/'0') when provided`
+        });
       }
 
-      if (item.salesTaxCode !== undefined && item.salesTaxCode !== null) {
-        const isStringCode = typeof item.salesTaxCode === 'string' && item.salesTaxCode.trim() !== '';
-        const isObjectCode = typeof item.salesTaxCode === 'object' &&
-          (item.salesTaxCode.listId || item.salesTaxCode.fullName);
+      const rawSalesTaxCode = item.salesTaxCode ?? item.taxCode ?? item.taxCodeName;
+      if (rawSalesTaxCode !== undefined && rawSalesTaxCode !== null) {
+        const isStringCode = typeof rawSalesTaxCode === 'string' && rawSalesTaxCode.trim() !== '';
+        const isObjectCode = typeof rawSalesTaxCode === 'object' &&
+          (rawSalesTaxCode.listId || rawSalesTaxCode.fullName);
 
         if (!isStringCode && !isObjectCode) {
           return res.status(400).json({
-            error: `Item ${i + 1}: salesTaxCode must be a non-empty string or object with listId/fullName`
+            error: `Item ${i + 1}: salesTaxCode/taxCode/taxCodeName must be a non-empty string or object with listId/fullName`
           });
         }
       }
@@ -632,16 +651,28 @@ app.post('/api/invoices', (req, res) => {
     
     // Convert quick format to full format
     const lineItems = items.map(item => ({
+      // Accept common boolean representations from upstream systems
       item: {
         listId: item.itemId
       },
       description: item.description || '',
       quantity: item.quantity,
       rate: item.rate,
-      taxable: item.taxable,
-      salesTaxCode: typeof item.salesTaxCode === 'string'
-        ? { fullName: item.salesTaxCode.trim() }
-        : item.salesTaxCode || null
+      taxable: (() => {
+        const raw = item.taxable !== undefined ? item.taxable : item.isTaxable;
+        if (raw === undefined || raw === null) {
+          return nonTaxable === true ? false : undefined;
+        }
+        if (raw === false || raw === 'false' || raw === 0 || raw === '0') return false;
+        if (raw === true || raw === 'true' || raw === 1 || raw === '1') return true;
+        return undefined;
+      })(),
+      salesTaxCode: (() => {
+        const raw = item.salesTaxCode ?? item.taxCode ?? item.taxCodeName;
+        if (!raw) return null;
+        if (typeof raw === 'string') return { fullName: raw.trim() };
+        return raw;
+      })()
     }));
     
     // Calculate total

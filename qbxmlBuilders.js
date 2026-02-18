@@ -315,16 +315,26 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
     }
 
     // Optional line-level sales tax code
-    // - line.salesTaxCode: { listId } or { fullName } (preferred explicit override)
-    // - line.taxable === false: defaults to QuickBooks "Non" code
-    if (line.salesTaxCode && (line.salesTaxCode.listId || line.salesTaxCode.fullName)) {
+    // - line.salesTaxCode / line.taxCode: string or { listId/fullName }
+    // - line.taxable false-like values default to QuickBooks "Non"
+    const rawSalesTaxCode = line.salesTaxCode ?? line.taxCode ?? null;
+    const normalizedSalesTaxCode = typeof rawSalesTaxCode === 'string'
+      ? { fullName: rawSalesTaxCode.trim() }
+      : rawSalesTaxCode;
+    const isNonTaxable =
+      line.taxable === false ||
+      line.taxable === 'false' ||
+      line.taxable === 0 ||
+      line.taxable === '0';
+
+    if (normalizedSalesTaxCode && (normalizedSalesTaxCode.listId || normalizedSalesTaxCode.fullName)) {
       const taxCodeRef = lineAdd.ele('SalesTaxCodeRef');
-      if (line.salesTaxCode.listId) {
-        taxCodeRef.ele('ListID').txt(line.salesTaxCode.listId);
+      if (normalizedSalesTaxCode.listId) {
+        taxCodeRef.ele('ListID').txt(normalizedSalesTaxCode.listId);
       } else {
-        taxCodeRef.ele('FullName').txt(line.salesTaxCode.fullName);
+        taxCodeRef.ele('FullName').txt(normalizedSalesTaxCode.fullName);
       }
-    } else if (line.taxable === false) {
+    } else if (isNonTaxable) {
       lineAdd.ele('SalesTaxCodeRef').ele('FullName').txt('Non');
     }
   });
