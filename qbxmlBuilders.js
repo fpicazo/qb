@@ -313,6 +313,20 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
       // Format rate with 2 decimal places
       lineAdd.ele('Rate').txt(Number(line.rate).toFixed(2));
     }
+
+    // Optional line-level sales tax code
+    // - line.salesTaxCode: { listId } or { fullName } (preferred explicit override)
+    // - line.taxable === false: defaults to QuickBooks "Non" code
+    if (line.salesTaxCode && (line.salesTaxCode.listId || line.salesTaxCode.fullName)) {
+      const taxCodeRef = lineAdd.ele('SalesTaxCodeRef');
+      if (line.salesTaxCode.listId) {
+        taxCodeRef.ele('ListID').txt(line.salesTaxCode.listId);
+      } else {
+        taxCodeRef.ele('FullName').txt(line.salesTaxCode.fullName);
+      }
+    } else if (line.taxable === false) {
+      lineAdd.ele('SalesTaxCodeRef').ele('FullName').txt('Non');
+    }
   });
 
   return wrapRq(root);

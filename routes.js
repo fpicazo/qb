@@ -612,6 +612,22 @@ app.post('/api/invoices', (req, res) => {
       if (item.rate === undefined || item.rate === null) {
         return res.status(400).json({ error: `Item ${i + 1}: rate is required` });
       }
+
+      if (item.taxable !== undefined && item.taxable !== null && typeof item.taxable !== 'boolean') {
+        return res.status(400).json({ error: `Item ${i + 1}: taxable must be boolean when provided` });
+      }
+
+      if (item.salesTaxCode !== undefined && item.salesTaxCode !== null) {
+        const isStringCode = typeof item.salesTaxCode === 'string' && item.salesTaxCode.trim() !== '';
+        const isObjectCode = typeof item.salesTaxCode === 'object' &&
+          (item.salesTaxCode.listId || item.salesTaxCode.fullName);
+
+        if (!isStringCode && !isObjectCode) {
+          return res.status(400).json({
+            error: `Item ${i + 1}: salesTaxCode must be a non-empty string or object with listId/fullName`
+          });
+        }
+      }
     }
     
     // Convert quick format to full format
@@ -621,7 +637,11 @@ app.post('/api/invoices', (req, res) => {
       },
       description: item.description || '',
       quantity: item.quantity,
-      rate: item.rate
+      rate: item.rate,
+      taxable: item.taxable,
+      salesTaxCode: typeof item.salesTaxCode === 'string'
+        ? { fullName: item.salesTaxCode.trim() }
+        : item.salesTaxCode || null
     }));
     
     // Calculate total
