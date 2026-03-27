@@ -4,10 +4,11 @@ const queue = [];
 
 function addJob(job) {
   // job: { type: 'CustomerQuery', payload: {...} }
+  const { requestId: _ignoredRequestId, ...jobWithoutRequestId } = job || {};
   const jobWithId = {
     id: Date.now().toString(),
     status: 'pending',
-    ...job
+    ...jobWithoutRequestId
   };
   queue.push(jobWithId);
   console.log(`✅ Job queued: ${jobWithId.id} (${job.type})`);

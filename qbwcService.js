@@ -139,7 +139,8 @@ const service = {
             qbxml = customerQuery({
               maxReturned: job.payload.maxReturned || 100,
               name: job.payload.name,
-              nameFilter: job.payload.nameFilter
+              nameFilter: job.payload.nameFilter,
+              requestId: job.id
             });
             console.log('📝 CustomerQuery XML generated');
           } 
@@ -147,14 +148,16 @@ const service = {
             qbxml = customerAdd({
               fullName: job.payload.fullName,
               email: job.payload.email,
-              phone: job.payload.phone
+              phone: job.payload.phone,
+              requestId: job.id
             });
             console.log('📝 CustomerAdd XML generated');
             console.log('   Customer:', job.payload.fullName);
           }
           else if (job.type === 'ItemQuery') {
             const queryPayload = {
-              maxReturned: job.payload.maxReturned || 100
+              maxReturned: job.payload.maxReturned || 100,
+              requestId: job.id
             };
             const autoTryEnabled = Boolean(job.payload && job.payload.autoTryExactContains && job.payload.searchTerm);
 
@@ -189,7 +192,8 @@ const service = {
           }
           else if (job.type === 'ItemGroupProductsQuery') {
             qbxml = itemGroupProductsQuery({
-              itemId: job.payload.itemId
+              itemId: job.payload.itemId,
+              requestId: job.id
             });
             console.log('📝 ItemGroupProductsQuery XML generated');
             console.log('   Item ListID:', job.payload.itemId);
@@ -200,7 +204,8 @@ const service = {
               name: job.payload.name,
               description: job.payload.description,
               price: job.payload.price,
-              account: job.payload.account
+              account: job.payload.account,
+              requestId: job.id
             });
             console.log('📝 ItemAdd XML generated');
             console.log('   Item:', job.payload.name, `(${job.payload.type})`);
@@ -211,7 +216,10 @@ const service = {
               customerName: job.payload.customerName,
               dateRangePreset: job.payload.dateRangePreset,
               txnDateStart: job.payload.txnDateStart,
-              txnDateEnd: job.payload.txnDateEnd
+              txnDateEnd: job.payload.txnDateEnd,
+              iteratorAction: job.payload.iteratorAction,
+              iteratorId: job.payload.iteratorId,
+              requestId: job.id
             });
             console.log('📝 InvoiceQuery XML generated');
             if (job.payload.depositToAccountName) {
@@ -225,7 +233,8 @@ const service = {
               memo: job.payload.memo,
               lineItems: job.payload.lineItems,
               billTo: job.payload.billTo,
-              shipTo: job.payload.shipTo
+              shipTo: job.payload.shipTo,
+              requestId: job.id
             });
             console.log('📝 InvoiceAdd XML generated');
             console.log('   Customer:', job.payload.customer.listId || job.payload.customer.fullName);

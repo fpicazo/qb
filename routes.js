@@ -68,6 +68,80 @@ function setupRoutes(app) {
       });
     });
   }
+
+  function parseInvoiceQueryResponse(rawXml) {
+    return new Promise((resolve, reject) => {
+      parseString(rawXml, { explicitArray: false }, (err, result) => {
+        if (err) return reject(err);
+
+        const rs = result?.QBXML?.QBXMLMsgsRs?.InvoiceQueryRs || {};
+        const attrs = rs?.$ || {};
+        const invoices = toArray(rs.InvoiceRet).map((invoice) => {
+          const customerRef = invoice?.CustomerRef || {};
+          const depositToAccountRef = invoice?.DepositToAccountRef || {};
+          const lines = toArray(invoice?.InvoiceLineRet).map((line) => ({
+            txnLineId: line?.TxnLineID || null,
+            itemId: line?.ItemRef?.ListID || null,
+            itemName: line?.ItemRef?.FullName || line?.ItemRef?.Name || null,
+            description: line?.Desc || null,
+            quantity: line?.Quantity !== undefined ? Number(line.Quantity) : null,
+            rate: line?.Rate !== undefined ? Number(line.Rate) : null,
+            amount: line?.Amount !== undefined ? Number(line.Amount) : null
+          }));
+
+          return {
+            txnId: invoice?.TxnID || null,
+            timeCreated: invoice?.TimeCreated || null,
+            timeModified: invoice?.TimeModified || null,
+            txnDate: invoice?.TxnDate || null,
+            refNumber: invoice?.RefNumber || invoice?.DocNumber || null,
+            customer: {
+              listId: customerRef?.ListID || null,
+              fullName: customerRef?.FullName || customerRef?.Name || null
+            },
+            memo: invoice?.Memo || null,
+            subtotal: invoice?.Subtotal !== undefined ? Number(invoice.Subtotal) : null,
+            tax: invoice?.Tax !== undefined ? Number(invoice.Tax) : null,
+            total: invoice?.Total !== undefined ? Number(invoice.Total) : null,
+            dueDate: invoice?.DueDate || null,
+            depositToAccount: {
+              listId: depositToAccountRef?.ListID || null,
+              fullName: depositToAccountRef?.FullName || depositToAccountRef?.Name || null
+            },
+            lines
+          };
+        });
+
+        resolve({
+          invoices,
+          invoiceCount: invoices.length,
+          pagination: {
+            iteratorId: attrs.iteratorID || null,
+            iteratorRemainingCount: attrs.iteratorRemainingCount !== undefined
+              ? Number(attrs.iteratorRemainingCount)
+              : null,
+            hasMore: Number(attrs.iteratorRemainingCount || 0) > 0
+          },
+          status: {
+            code: attrs.statusCode || null,
+            severity: attrs.statusSeverity || null,
+            message: attrs.statusMessage || null
+          }
+        });
+      });
+    });
+  }
+
+  function getLastYearDateRange() {
+    const now = new Date();
+    const lastYear = now.getFullYear() - 1;
+
+    return {
+      year: lastYear,
+      txnDateStart: `${lastYear}-01-01`,
+      txnDateEnd: `${lastYear}-12-31`
+    };
+  }
   
   // Home page - Web interface
   app.get('/', (req, res) => {
@@ -528,17 +602,13 @@ app.post('/api/invoices/query', (req, res) => {
   try {
     // Parameters
     let timeline = req.body?.timeline || 'last-hour';
-    let page = parseInt(req.body?.page) || 1;
     let maxReturned = parseInt(req.body?.maxReturned) || 30;
+    const cursor = req.body?.cursor ? String(req.body.cursor) : null;
+    const iteratorAction = cursor ? 'Continue' : 'Start';
     
     // QB Limitation: Max 30 per request
     if (maxReturned > 30) {
       maxReturned = 30;
-    }
-    
-    // Validate page
-    if (page < 1) {
-      page = 1;
     }
     
     const queued = queueJobWithConnectionGuard({
@@ -550,7 +620,8 @@ app.post('/api/invoices/query', (req, res) => {
         dateRangePreset: timeline,
         txnDateStart: null,
         txnDateEnd: null,
-        page: page
+        iteratorAction,
+        iteratorId: cursor
       }
     });
     if (!queued.accepted) {
@@ -564,25 +635,80 @@ app.post('/api/invoices/query', (req, res) => {
     res.json({
       success: true,
       jobId: job.id,
-      message: `Invoice query queued for ${timeline} - page ${page}`,
+      message: `Invoice query queued for ${timeline} - ${iteratorAction === 'Continue' ? 'next page' : 'first page'}`,
       parameters: {
         timeline,
-        page,
+        cursor,
+        iteratorAction,
         maxPerPage: maxReturned,
         note: 'QB max is 30 invoices per request'
       },
-      instruction: 'Check /api/queue for results after QBWC syncs',
+      instruction: 'Check /api/queue for results after QBWC syncs. Use the returned pagination.iteratorId as the next cursor.',
       pagination: {
-        currentPage: page,
         itemsPerPage: maxReturned,
         qbLimit: '30 invoices max per request',
-        nextPageUrl: `https://infinitecapi.online/api/invoices/fetch?timeline=${timeline}&page=${page + 1}`
+        cursor
       }
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+  app.get('/api/invoices/last-year', (req, res) => {
+    try {
+      const { year, txnDateStart, txnDateEnd } = getLastYearDateRange();
+      const requestedLimit = parseInt(req.query?.limit);
+      const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 30)
+        : 30;
+      const cursor = req.query?.cursor ? String(req.query.cursor) : null;
+      const iteratorAction = cursor ? 'Continue' : 'Start';
+
+      const queued = queueJobWithConnectionGuard({
+        type: 'InvoiceQuery',
+        payload: {
+          maxReturned: limit,
+          depositToAccountName: null,
+          customerName: null,
+          dateRangePreset: 'last-year',
+          txnDateStart,
+          txnDateEnd,
+          iteratorAction,
+          iteratorId: cursor
+        }
+      });
+
+      if (!queued.accepted) {
+        return res.status(503).json({
+          success: false,
+          error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+          quickbooks: queued.connection
+        });
+      }
+
+      const job = queued.queuedJob;
+      res.json({
+        success: true,
+        jobId: job.id,
+        message: `Last year invoice query queued for ${year} - ${iteratorAction === 'Continue' ? 'next page' : 'first page'}`,
+        period: {
+          year,
+          txnDateStart,
+          txnDateEnd
+        },
+        pagination: {
+          limit,
+          qbLimit: '30 invoices max per request',
+          cursor,
+          iteratorAction
+        },
+        instruction: 'Check /api/queue?jobId=<jobId> after QBWC syncs. Use result.parsed.pagination.iteratorId as the next cursor when hasMore is true.'
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   app.post('/api/invoices', (req, res) => {
   try {
@@ -725,10 +851,52 @@ app.post('/api/invoices/query', (req, res) => {
   app.get('/api/queue', (req, res) => {
     try {
       const { _queue } = require('./queue');
-      res.json({
-        success: true,
-        count: _queue.length,
-        queue: _queue
+      const jobId = req.query?.jobId ? String(req.query.jobId) : null;
+      const requestId = req.query?.requestId ? String(req.query.requestId) : null;
+      let resultQueue = _queue;
+
+      if (jobId) {
+        resultQueue = resultQueue.filter((job) => String(job.id) === jobId);
+      }
+      if (requestId) {
+        // requestId aliases the existing queue job id
+        resultQueue = resultQueue.filter((job) => String(job.id) === requestId);
+      }
+
+      Promise.all(resultQueue.map(async (job) => {
+        if (job?.type === 'InvoiceQuery' && job?.status === 'done' && job?.result?.raw) {
+          try {
+            return {
+              ...job,
+              result: {
+                ...job.result,
+                parsed: await parseInvoiceQueryResponse(job.result.raw)
+              }
+            };
+          } catch (parseError) {
+            return {
+              ...job,
+              result: {
+                ...job.result,
+                parseError: parseError.message
+              }
+            };
+          }
+        }
+
+        return job;
+      })).then((queueWithParsedResults) => {
+        res.json({
+          success: true,
+          count: queueWithParsedResults.length,
+          filters: {
+            jobId,
+            requestId
+          },
+          queue: queueWithParsedResults
+        });
+      }).catch((error) => {
+        res.status(500).json({ error: error.message });
       });
     } catch (error) {
       res.status(500).json({ error: error.message });

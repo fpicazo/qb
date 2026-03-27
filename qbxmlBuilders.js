@@ -25,9 +25,13 @@ function wrapRq(inner, version = '13.0') {
   return `<?xml version="1.0" encoding="utf-8"?>\n<?qbxml version="${version}"?>\n${xmlStr}`;
 }
 
+function resolveRequestId(requestId, fallback) {
+  const normalized = requestId === null || requestId === undefined ? '' : String(requestId).trim();
+  return normalized || fallback;
+}
 
-function customerQuery({ maxReturned = 100, name, nameFilter } = {}) {
-  const inner = create().ele('CustomerQueryRq', { requestID: 'cust-query-1' });
+function customerQuery({ maxReturned = 100, name, nameFilter, requestId } = {}) {
+  const inner = create().ele('CustomerQueryRq', { requestID: resolveRequestId(requestId, 'cust-query-1') });
   
   // IMPORTANT: QBXML requires specific element order!
   // When filtering by exact FullName, don't include MaxReturned
@@ -60,8 +64,8 @@ function customerQuery({ maxReturned = 100, name, nameFilter } = {}) {
   return wrapRq(inner);
 }
 
-function itemQuery({ maxReturned = 100, name, nameFilter } = {}) {
-  const inner = create().ele('ItemQueryRq', { requestID: 'item-query-1' });
+function itemQuery({ maxReturned = 100, name, nameFilter, requestId } = {}) {
+  const inner = create().ele('ItemQueryRq', { requestID: resolveRequestId(requestId, 'item-query-1') });
   const normalizedName = normalizeLookupText(name);
   const normalizedFilterName = normalizeLookupText(nameFilter && nameFilter.name);
   
@@ -100,12 +104,12 @@ function itemQuery({ maxReturned = 100, name, nameFilter } = {}) {
   return wrapRq(inner);
 }
 
-function itemGroupProductsQuery({ itemId } = {}) {
+function itemGroupProductsQuery({ itemId, requestId } = {}) {
   if (!itemId) {
     throw new Error('itemId is required');
   }
 
-  const inner = create().ele('ItemQueryRq', { requestID: 'item-group-products-query-1' });
+  const inner = create().ele('ItemQueryRq', { requestID: resolveRequestId(requestId, 'item-group-products-query-1') });
   inner.ele('ListID').txt(String(itemId));
 
   // Intentionally do not use IncludeRetElement here so QB returns full ItemGroupLineRet data.
@@ -113,7 +117,7 @@ function itemGroupProductsQuery({ itemId } = {}) {
   return wrapRq(inner);
 }
 
-function itemAdd({ type = 'Service', name, description, price, account }) {
+function itemAdd({ type = 'Service', name, description, price, account, requestId }) {
   if (!name) throw new Error('Item name is required');
   
   const validTypes = ['Service', 'NonInventory', 'Inventory'];
@@ -123,7 +127,7 @@ function itemAdd({ type = 'Service', name, description, price, account }) {
 
   // Keep reference to root document
   const root = create();
-  const req = root.ele(`Item${type}AddRq`, { requestID: 'item-1' });
+  const req = root.ele(`Item${type}AddRq`, { requestID: resolveRequestId(requestId, 'item-1') });
   const add = req.ele(`Item${type}Add`);
   
   // Add name (required)
@@ -156,8 +160,8 @@ function itemAdd({ type = 'Service', name, description, price, account }) {
   return wrapRq(root);
 }
 
-function customerAdd({ fullName, email, phone }) {
-  const inner = create().ele('CustomerAddRq', { requestID: 'cust-1' })
+function customerAdd({ fullName, email, phone, requestId }) {
+  const inner = create().ele('CustomerAddRq', { requestID: resolveRequestId(requestId, 'cust-1') })
     .ele('CustomerAdd')
       .ele('Name').txt(fullName).up()
       .ele('Phone').txt(phone || '').up()
@@ -168,14 +172,40 @@ function customerAdd({ fullName, email, phone }) {
 
 // ========== INVOICE OPERATIONS ==========
 
-function invoiceQuery({ maxReturned = 20, depositToAccountName, customerName, txnDateStart, txnDateEnd } = {}) {
-  const inner = create().ele('InvoiceQueryRq', { requestID: 'invoice-query-1' });
+function invoiceQuery({
+  maxReturned = 20,
+  depositToAccountName,
+  customerName,
+  txnDateStart,
+  txnDateEnd,
+  iteratorAction,
+  iteratorId,
+  requestId
+} = {}) {
+  const attrs = { requestID: resolveRequestId(requestId, 'invoice-query-1') };
+  if (iteratorAction) {
+    attrs.iterator = iteratorAction;
+  }
+  if (iteratorId) {
+    attrs.iteratorID = iteratorId;
+  }
+
+  const inner = create().ele('InvoiceQueryRq', attrs);
   
   // Add MaxReturned
   inner.ele('MaxReturned').txt(String(maxReturned));
   
+  if (txnDateStart || txnDateEnd) {
+    const dateRange = inner.ele('ORDateRangeFilter').ele('TxnDateRangeFilter');
+    if (txnDateStart) {
+      dateRange.ele('FromTxnDate').txt(txnDateStart);
+    }
+    if (txnDateEnd) {
+      dateRange.ele('ToTxnDate').txt(txnDateEnd);
+    }
+  }
+  
   // Add optional filters via metadata
-  // Note: QB doesn't support direct filtering in InvoiceQuery request
   // Filtering by DepositToAccountRef happens in response parsing
   
   // Request all fields so we can filter client-side
@@ -206,7 +236,7 @@ function invoiceQuery({ maxReturned = 20, depositToAccountName, customerName, tx
   return wrapRq(inner);
 }
 
-function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shipTo }) {
+function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shipTo, requestId }) {
   if (!customer || (!customer.listId && !customer.fullName)) {
     throw new Error('Customer reference (listId or fullName) is required');
   }
@@ -216,7 +246,7 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
   }
 
   const root = create();
-  const req = root.ele('InvoiceAddRq', { requestID: 'invoice-1' });
+  const req = root.ele('InvoiceAddRq', { requestID: resolveRequestId(requestId, 'invoice-1') });
   const add = req.ele('InvoiceAdd');
   
   // Add customer reference
