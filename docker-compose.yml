@@ -21,5 +21,4 @@ networks:
   portainer_net:
     driver: bridge
   shared-network:
-    driver: bridge
     external: true
