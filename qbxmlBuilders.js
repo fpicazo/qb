@@ -64,8 +64,16 @@ function customerQuery({ maxReturned = 100, name, nameFilter, requestId } = {}) 
   return wrapRq(inner);
 }
 
-function itemQuery({ maxReturned = 100, name, nameFilter, requestId } = {}) {
-  const inner = create().ele('ItemQueryRq', { requestID: resolveRequestId(requestId, 'item-query-1') });
+function itemQuery({ maxReturned = 100, name, nameFilter, iteratorAction, iteratorId, requestId } = {}) {
+  const attrs = { requestID: resolveRequestId(requestId, 'item-query-1') };
+  if (iteratorAction) {
+    attrs.iterator = iteratorAction;
+  }
+  if (iteratorId) {
+    attrs.iteratorID = iteratorId;
+  }
+
+  const inner = create().ele('ItemQueryRq', attrs);
   const normalizedName = normalizeLookupText(name);
   const normalizedFilterName = normalizeLookupText(nameFilter && nameFilter.name);
   

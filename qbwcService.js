@@ -157,6 +157,8 @@ const service = {
           else if (job.type === 'ItemQuery') {
             const queryPayload = {
               maxReturned: job.payload.maxReturned || 100,
+              iteratorAction: job.payload.iteratorAction,
+              iteratorId: job.payload.iteratorId,
               requestId: job.id
             };
             const autoTryEnabled = Boolean(job.payload && job.payload.autoTryExactContains && job.payload.searchTerm);
