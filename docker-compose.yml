@@ -1,6 +1,9 @@
 services:
   qb-connector:
-    image: qb:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qb-web-connector:latest
     container_name: qb
     ports:
       - "8080:8080"
