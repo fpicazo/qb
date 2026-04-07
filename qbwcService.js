@@ -51,6 +51,34 @@ function itemQueryHasResults(xmlResponse) {
   return /<Item[A-Za-z]*Ret\b/.test(xmlResponse);
 }
 
+function parseItemQueryPageStats(xmlResponse) {
+  const xml = xmlResponse || '';
+  const totalItems = (xml.match(/<Item[A-Za-z]*Ret\b/g) || []).length;
+  const groupItems = (xml.match(/<ItemGroupRet\b/g) || []).length;
+  const rsTagMatch = xml.match(/<ItemQueryRs\b([^>]*)>/);
+  const attrsText = rsTagMatch ? rsTagMatch[1] : '';
+  const iteratorIdMatch = attrsText.match(/\biteratorID="([^"]+)"/);
+  const remainingCountMatch = attrsText.match(/\biteratorRemainingCount="([^"]+)"/);
+  const statusCodeMatch = attrsText.match(/\bstatusCode="([^"]+)"/);
+  const statusSeverityMatch = attrsText.match(/\bstatusSeverity="([^"]+)"/);
+  const statusMessageMatch = attrsText.match(/\bstatusMessage="([^"]+)"/);
+  const iteratorRemainingCount = remainingCountMatch ? Number(remainingCountMatch[1]) : 0;
+
+  return {
+    totalItems,
+    groupItems,
+    nonGroupItems: totalItems - groupItems,
+    iteratorId: iteratorIdMatch ? iteratorIdMatch[1] : null,
+    iteratorRemainingCount,
+    hasMore: iteratorRemainingCount > 0,
+    status: {
+      code: statusCodeMatch ? statusCodeMatch[1] : null,
+      severity: statusSeverityMatch ? statusSeverityMatch[1] : null,
+      message: statusMessageMatch ? statusMessageMatch[1] : null
+    }
+  };
+}
+
 function normalizeLookupText(value) {
   if (value === null || value === undefined) return value;
   return String(value)
@@ -378,7 +406,57 @@ const service = {
               } else {
                 console.log('Job completed:', lastJob && lastJob.id);
                 if (lastJob) {
-                  markDone(lastJob.id, { raw: args.response });
+                  const isExactNonGroupCount =
+                    lastJob.type === 'ItemQuery' &&
+                    lastJob.payload &&
+                    lastJob.payload.exactCountMode === 'non-group';
+
+                  if (isExactNonGroupCount) {
+                    const pageStats = parseItemQueryPageStats(args.response);
+                    const runningTotalItems = Number(lastJob.payload.runningTotalItems || 0) + pageStats.totalItems;
+                    const runningGroupItems = Number(lastJob.payload.runningGroupItems || 0) + pageStats.groupItems;
+                    const runningNonGroupItems = Number(lastJob.payload.runningNonGroupItems || 0) + pageStats.nonGroupItems;
+
+                    lastJob.payload.runningTotalItems = runningTotalItems;
+                    lastJob.payload.runningGroupItems = runningGroupItems;
+                    lastJob.payload.runningNonGroupItems = runningNonGroupItems;
+                    lastJob.payload.pagesProcessed = Number(lastJob.payload.pagesProcessed || 0) + 1;
+
+                    if (pageStats.hasMore && pageStats.iteratorId) {
+                      lastJob.payload.iteratorAction = 'Continue';
+                      lastJob.payload.iteratorId = pageStats.iteratorId;
+                      lastJob.status = 'pending';
+                      lastJob.result = {
+                        raw: args.response,
+                        progress: {
+                          totalItems: runningTotalItems,
+                          groupItems: runningGroupItems,
+                          nonGroupItems: runningNonGroupItems,
+                          pagesProcessed: lastJob.payload.pagesProcessed,
+                          iteratorRemainingCount: pageStats.iteratorRemainingCount
+                        }
+                      };
+                      console.log(
+                        'Continuing exact non-group count for job',
+                        lastJob.id,
+                        '- pages:',
+                        lastJob.payload.pagesProcessed,
+                        'remaining:',
+                        pageStats.iteratorRemainingCount
+                      );
+                    } else {
+                      markDone(lastJob.id, {
+                        raw: args.response,
+                        exactCountMode: 'non-group',
+                        totalItems: runningTotalItems,
+                        groupItems: runningGroupItems,
+                        nonGroupItems: runningNonGroupItems,
+                        pagesProcessed: lastJob.payload.pagesProcessed
+                      });
+                    }
+                  } else {
+                    markDone(lastJob.id, { raw: args.response });
+                  }
                   if (args.response) {
                     console.log('Response preview:', args.response.substring(0, 200) + '...');
                   }
