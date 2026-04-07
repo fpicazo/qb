@@ -93,8 +93,10 @@ function itemQuery({ maxReturned = 100, name, nameFilter, iteratorAction, iterat
     inner.ele('MaxReturned').txt(String(maxReturned));
   }
 
-  // Include inactive items too (default is ActiveOnly in many QB setups).
-  inner.ele('ActiveStatus').txt('All');
+  // ActiveStatus belongs to the list-filter branch, so don't combine it with exact FullName queries.
+  if (!normalizedName) {
+    inner.ele('ActiveStatus').txt('All');
+  }
   
   // Filter by name pattern if provided (comes AFTER MaxReturned)
   if (normalizedFilterName) {
