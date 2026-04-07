@@ -6,8 +6,6 @@ const config = require('./config');
 
 // Setup routes
 function setupRoutes(app) {
-  const itemQueryCountPageSize = 100;
-
   function getQbConnectionStatus() {
     const { getConnectionStatus } = require('./qbwcService');
     return getConnectionStatus();
@@ -133,16 +131,24 @@ function setupRoutes(app) {
     });
   }
 
-  async function summarizeNonGroupItemCount(rawXml) {
-    const parsed = await parseItemQueryResponse(rawXml);
-    const nonGroupItemCount = parsed.items.filter((item) => !item.isGroup).length;
-    const groupItemCount = parsed.items.length - nonGroupItemCount;
+  function parseQueryCountResponse(rawXml, responseNodeName) {
+    return new Promise((resolve, reject) => {
+      parseString(rawXml, { explicitArray: false }, (err, result) => {
+        if (err) return reject(err);
 
-    return {
-      parsed,
-      nonGroupItemCount,
-      groupItemCount
-    };
+        const rs = result?.QBXML?.QBXMLMsgsRs?.[responseNodeName] || {};
+        const attrs = rs?.$ || {};
+
+        resolve({
+          retCount: attrs.retCount !== undefined ? Number(attrs.retCount) : null,
+          status: {
+            code: attrs.statusCode || null,
+            severity: attrs.statusSeverity || null,
+            message: attrs.statusMessage || null
+          }
+        });
+      });
+    });
   }
 
   function parseInvoiceQueryResponse(rawXml) {
@@ -582,37 +588,59 @@ app.get('/api/items/count/non-group', async (req, res) => {
 
     if (!sessionId) {
       const countSessionId = uuidv4();
-      const queued = queueJobWithConnectionGuard({
+      const queuedAllItems = queueJobWithConnectionGuard({
         type: 'ItemQuery',
         payload: {
-          maxReturned: itemQueryCountPageSize,
-          iteratorAction: 'Start',
-          countMode: 'non-group',
+          metaData: 'MetaDataOnly',
+          countMode: 'all-items',
           countSessionId
         }
       });
 
-      if (!queued.accepted) {
+      if (!queuedAllItems.accepted) {
         return res.status(503).json({
           success: false,
-          error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
-          quickbooks: queued.connection
+          error: `QuickBooks has been offline for more than ${queuedAllItems.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+          quickbooks: queuedAllItems.connection
         });
       }
 
-      const job = queued.queuedJob;
+      const queuedGroupItems = queueJobWithConnectionGuard({
+        type: 'ItemGroupQuery',
+        payload: {
+          metaData: 'MetaDataOnly',
+          countMode: 'group-items',
+          countSessionId
+        }
+      });
+
+      if (!queuedGroupItems.accepted) {
+        return res.status(503).json({
+          success: false,
+          error: `QuickBooks has been offline for more than ${queuedGroupItems.connection.offlineCutoffMinutes} minutes. Group-count job not queued.`,
+          quickbooks: queuedGroupItems.connection
+        });
+      }
+
       return res.status(202).json({
         success: true,
         sessionId: countSessionId,
-        jobId: job.id,
-        status: job.status,
+        jobs: {
+          allItemsJobId: queuedAllItems.queuedJob.id,
+          groupItemsJobId: queuedGroupItems.queuedJob.id
+        },
+        status: 'pending',
         message: 'Non-group item count started.',
-        instruction: `Re-call GET /api/items/count/non-group?sessionId=${encodeURIComponent(countSessionId)} after QBWC syncs, or check /api/queue with jobId: ${job.id}`
+        note: 'This uses QuickBooks metadata counts and subtracts ItemGroup count from total item count.',
+        instruction: `Re-call GET /api/items/count/non-group?sessionId=${encodeURIComponent(countSessionId)} after QBWC syncs, or check /api/queue with the returned job IDs`
       });
     }
 
     const sessionJobs = _queue
-      .filter((job) => job.type === 'ItemQuery' && String(job?.payload?.countSessionId || '') === sessionId)
+      .filter((job) => (
+        (job.type === 'ItemQuery' || job.type === 'ItemGroupQuery') &&
+        String(job?.payload?.countSessionId || '') === sessionId
+      ))
       .sort((a, b) => Number(a.id) - Number(b.id));
 
     if (sessionJobs.length === 0) {
@@ -642,85 +670,42 @@ app.get('/api/items/count/non-group', async (req, res) => {
         status: activeJob.status,
         message: 'Non-group item count is still in progress.',
         progress: {
-          pagesQueued: sessionJobs.length,
-          pagesCompleted: sessionJobs.filter((job) => job.status === 'done').length
+          jobsTotal: sessionJobs.length,
+          jobsCompleted: sessionJobs.filter((job) => job.status === 'done').length
         }
       });
     }
 
-    const completedJobs = sessionJobs.filter((job) => job.status === 'done' && job?.result?.raw);
-    let nonGroupItemCount = 0;
-    let groupItemCount = 0;
-    let latestParsedPage = null;
+    const allItemsJob = sessionJobs.find((job) => job.type === 'ItemQuery' && job?.result?.raw);
+    const groupItemsJob = sessionJobs.find((job) => job.type === 'ItemGroupQuery' && job?.result?.raw);
 
-    for (const job of completedJobs) {
-      const summary = await summarizeNonGroupItemCount(job.result.raw);
-      nonGroupItemCount += summary.nonGroupItemCount;
-      groupItemCount += summary.groupItemCount;
-      latestParsedPage = summary.parsed;
-    }
-
-    if (!latestParsedPage) {
+    if (!allItemsJob || !groupItemsJob) {
       return res.status(202).json({
         success: true,
         sessionId,
         status: 'waiting-for-results',
-        message: 'Count session exists, but no completed item-query page is available yet.'
+        message: 'Count session exists, but one or more count results are not available yet.'
       });
     }
 
-    if (latestParsedPage.pagination.hasMore) {
-      const queued = queueJobWithConnectionGuard({
-        type: 'ItemQuery',
-        payload: {
-          maxReturned: itemQueryCountPageSize,
-          iteratorAction: 'Continue',
-          iteratorId: latestParsedPage.pagination.iteratorId,
-          countMode: 'non-group',
-          countSessionId: sessionId
-        }
-      });
-
-      if (!queued.accepted) {
-        return res.status(503).json({
-          success: false,
-          sessionId,
-          error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Next count page was not queued.`,
-          quickbooks: queued.connection,
-          progress: {
-            nonGroupItemCount,
-            groupItemCount,
-            pagesCompleted: completedJobs.length
-          }
-        });
-      }
-
-      const nextJob = queued.queuedJob;
-      return res.status(202).json({
-        success: true,
-        sessionId,
-        jobId: nextJob.id,
-        status: nextJob.status,
-        message: 'Queued the next item page to continue counting non-group items.',
-        progress: {
-          nonGroupItemCount,
-          groupItemCount,
-          pagesCompleted: completedJobs.length,
-          nextCursor: latestParsedPage.pagination.iteratorId,
-          remainingCount: latestParsedPage.pagination.iteratorRemainingCount
-        },
-        instruction: `Re-call GET /api/items/count/non-group?sessionId=${encodeURIComponent(sessionId)} after QBWC syncs, or check /api/queue with jobId: ${nextJob.id}`
-      });
-    }
+    const allItemsCount = await parseQueryCountResponse(allItemsJob.result.raw, 'ItemQueryRs');
+    const groupItemsCount = await parseQueryCountResponse(groupItemsJob.result.raw, 'ItemGroupQueryRs');
+    const totalItemCount = Number(allItemsCount.retCount || 0);
+    const totalGroupItemCount = Number(groupItemsCount.retCount || 0);
+    const nonGroupItemCount = Math.max(0, totalItemCount - totalGroupItemCount);
 
     return res.json({
       success: true,
       sessionId,
       nonGroupItemCount,
-      groupItemCount,
-      totalItemsSeen: nonGroupItemCount + groupItemCount,
-      pagesProcessed: completedJobs.length,
-      completed: true
+      groupItemCount: totalGroupItemCount,
+      totalItemsSeen: totalItemCount,
+      completed: true,
+      note: 'QuickBooks retCount metadata is documented as approximate, so this total may be slightly off.',
+      jobs: {
+        allItemsJobId: allItemsJob.id,
+        groupItemsJobId: groupItemsJob.id
+      }
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });

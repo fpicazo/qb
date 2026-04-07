@@ -64,8 +64,11 @@ function customerQuery({ maxReturned = 100, name, nameFilter, requestId } = {}) 
   return wrapRq(inner);
 }
 
-function itemQuery({ maxReturned = 100, name, nameFilter, iteratorAction, iteratorId, requestId } = {}) {
+function itemQuery({ maxReturned = 100, name, nameFilter, iteratorAction, iteratorId, requestId, metaData } = {}) {
   const attrs = { requestID: resolveRequestId(requestId, 'item-query-1') };
+  if (metaData) {
+    attrs.metaData = metaData;
+  }
   if (iteratorAction) {
     attrs.iterator = iteratorAction;
   }
@@ -108,6 +111,25 @@ function itemQuery({ maxReturned = 100, name, nameFilter, iteratorAction, iterat
   inner.ele('IncludeRetElement').txt('SalesPrice');
   inner.ele('IncludeRetElement').txt('SalesDesc');
   
+  inner.up();
+  return wrapRq(inner);
+}
+
+function itemGroupQuery({ requestId, metaData, nameFilter } = {}) {
+  const attrs = { requestID: resolveRequestId(requestId, 'item-group-query-1') };
+  if (metaData) {
+    attrs.metaData = metaData;
+  }
+
+  const inner = create().ele('ItemGroupQueryRq', attrs);
+  const normalizedFilterName = normalizeLookupText(nameFilter && nameFilter.name);
+
+  if (normalizedFilterName) {
+    const filter = inner.ele('NameFilter');
+    filter.ele('MatchCriterion').txt(nameFilter.matchCriterion || 'StartsWith');
+    filter.ele('Name').txt(normalizedFilterName);
+  }
+
   inner.up();
   return wrapRq(inner);
 }
@@ -387,6 +409,7 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
 module.exports = { 
   customerQuery,
   itemQuery,
+  itemGroupQuery,
   itemGroupProductsQuery,
   itemAdd,
   customerAdd,

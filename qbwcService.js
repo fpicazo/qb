@@ -3,6 +3,7 @@
 const {
   customerQuery,
   itemQuery,
+  itemGroupQuery,
   itemGroupProductsQuery,
   customerAdd,
   itemAdd,
@@ -159,7 +160,8 @@ const service = {
               maxReturned: job.payload.maxReturned || 100,
               iteratorAction: job.payload.iteratorAction,
               iteratorId: job.payload.iteratorId,
-              requestId: job.id
+              requestId: job.id,
+              metaData: job.payload.metaData
             };
             const autoTryEnabled = Boolean(job.payload && job.payload.autoTryExactContains && job.payload.searchTerm);
 
@@ -191,6 +193,14 @@ const service = {
 
             qbxml = itemQuery(queryPayload);
             console.log('ItemQuery XML generated');
+          }
+          else if (job.type === 'ItemGroupQuery') {
+            qbxml = itemGroupQuery({
+              requestId: job.id,
+              metaData: job.payload.metaData,
+              nameFilter: job.payload.nameFilter
+            });
+            console.log('ItemGroupQuery XML generated');
           }
           else if (job.type === 'ItemGroupProductsQuery') {
             qbxml = itemGroupProductsQuery({
