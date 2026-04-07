@@ -79,6 +79,7 @@ function itemQuery({ maxReturned = 100, name, nameFilter, iteratorAction, iterat
   const inner = create().ele('ItemQueryRq', attrs);
   const normalizedName = normalizeLookupText(name);
   const normalizedFilterName = normalizeLookupText(nameFilter && nameFilter.name);
+  const isMetaDataOnly = metaData === 'MetaDataOnly';
   
   // IMPORTANT: QBXML requires specific element order!
   // Order: FullName/ListID → MaxReturned → NameFilter → IncludeRetElement
@@ -87,7 +88,7 @@ function itemQuery({ maxReturned = 100, name, nameFilter, iteratorAction, iterat
   if (normalizedName) {
     inner.ele('FullName').txt(normalizedName);
     // When filtering by exact FullName, do NOT include MaxReturned
-  } else {
+  } else if (!isMetaDataOnly) {
     // Add MaxReturned only when not filtering by exact name
     inner.ele('MaxReturned').txt(String(maxReturned));
   }
@@ -103,13 +104,15 @@ function itemQuery({ maxReturned = 100, name, nameFilter, iteratorAction, iterat
   }
   
   // Request specific fields (must come LAST)
-  inner.ele('IncludeRetElement').txt('ListID');
-  inner.ele('IncludeRetElement').txt('Name');
-  inner.ele('IncludeRetElement').txt('FullName');
-  inner.ele('IncludeRetElement').txt('Type');
-  inner.ele('IncludeRetElement').txt('IsActive');
-  inner.ele('IncludeRetElement').txt('SalesPrice');
-  inner.ele('IncludeRetElement').txt('SalesDesc');
+  if (!isMetaDataOnly) {
+    inner.ele('IncludeRetElement').txt('ListID');
+    inner.ele('IncludeRetElement').txt('Name');
+    inner.ele('IncludeRetElement').txt('FullName');
+    inner.ele('IncludeRetElement').txt('Type');
+    inner.ele('IncludeRetElement').txt('IsActive');
+    inner.ele('IncludeRetElement').txt('SalesPrice');
+    inner.ele('IncludeRetElement').txt('SalesDesc');
+  }
   
   inner.up();
   return wrapRq(inner);
@@ -123,8 +126,11 @@ function itemGroupQuery({ requestId, metaData, nameFilter } = {}) {
 
   const inner = create().ele('ItemGroupQueryRq', attrs);
   const normalizedFilterName = normalizeLookupText(nameFilter && nameFilter.name);
+  const isMetaDataOnly = metaData === 'MetaDataOnly';
 
-  if (normalizedFilterName) {
+  inner.ele('ActiveStatus').txt('All');
+
+  if (!isMetaDataOnly && normalizedFilterName) {
     const filter = inner.ele('NameFilter');
     filter.ele('MatchCriterion').txt(nameFilter.matchCriterion || 'StartsWith');
     filter.ele('Name').txt(normalizedFilterName);

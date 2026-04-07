@@ -193,6 +193,9 @@ const service = {
 
             qbxml = itemQuery(queryPayload);
             console.log('ItemQuery XML generated');
+            if (job.payload.metaData || job.payload.countSessionId) {
+              console.log(qbxml);
+            }
           }
           else if (job.type === 'ItemGroupQuery') {
             qbxml = itemGroupQuery({
@@ -201,6 +204,9 @@ const service = {
               nameFilter: job.payload.nameFilter
             });
             console.log('ItemGroupQuery XML generated');
+            if (job.payload.metaData || job.payload.countSessionId) {
+              console.log(qbxml);
+            }
           }
           else if (job.type === 'ItemGroupProductsQuery') {
             qbxml = itemGroupProductsQuery({
