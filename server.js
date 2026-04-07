@@ -3,7 +3,7 @@
 const https = require('https');
 const fs = require('fs');
 const express = require('express');
-const { parseString } = require('xml2js');
+const { parseString } = require('xml2js'); 
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -421,7 +421,7 @@ try {
     console.log('📡 API Endpoints:');
     console.log('   POST /api/customers/fetch - Queue customer fetch');
     console.log('   GET  /api/queue           - View queue status\n');
-    console.log('   GET  /api/items/count/non-group      - Count all non-group items');
+    console.log('   GET  /api/items/count/non-group      - Count all non-group items'); 
     console.log('   GET  /api/items/group-products/:itemId - Queue/read item-group products');
     console.log('   GET  /api/qb/connection-status       View QuickBooks connection status\n');
   });
