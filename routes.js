@@ -205,6 +205,26 @@ function setupRoutes(app) {
       txnDateEnd: `${lastYear}-12-31`
     };
   }
+
+  function formatDateOnly(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function getLastMonthDateRange() {
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    return {
+      year: firstDay.getFullYear(),
+      month: firstDay.getMonth() + 1,
+      txnDateStart: formatDateOnly(firstDay),
+      txnDateEnd: formatDateOnly(lastDay)
+    };
+  }
   
   // Home page - Web interface
   app.get('/', (req, res) => {
@@ -812,8 +832,11 @@ app.post('/api/invoices/query', (req, res) => {
     // Parameters
     let timeline = req.body?.timeline || 'last-hour';
     let maxReturned = parseInt(req.body?.maxReturned) || 30;
+    const txnId = req.body?.txnId ? String(req.body.txnId) : null;
+    const txnDateStart = req.body?.txnDateStart ? String(req.body.txnDateStart) : null;
+    const txnDateEnd = req.body?.txnDateEnd ? String(req.body.txnDateEnd) : null;
     const cursor = req.body?.cursor ? String(req.body.cursor) : null;
-    const iteratorAction = cursor ? 'Continue' : 'Start';
+    const iteratorAction = txnId ? null : cursor ? 'Continue' : 'Start';
     
     // QB Limitation: Max 30 per request
     if (maxReturned > 30) {
@@ -824,11 +847,12 @@ app.post('/api/invoices/query', (req, res) => {
       type: 'InvoiceQuery',
       payload: {
         maxReturned: maxReturned,
+        txnId,
         depositToAccountName: null,
         customerName: null,
-        dateRangePreset: timeline,
-        txnDateStart: null,
-        txnDateEnd: null,
+        dateRangePreset: txnId ? 'specific' : timeline,
+        txnDateStart,
+        txnDateEnd,
         iteratorAction,
         iteratorId: cursor
       }
@@ -844,9 +868,14 @@ app.post('/api/invoices/query', (req, res) => {
     res.json({
       success: true,
       jobId: job.id,
-      message: `Invoice query queued for ${timeline} - ${iteratorAction === 'Continue' ? 'next page' : 'first page'}`,
+      message: txnId
+        ? `Invoice query queued for TxnID ${txnId}`
+        : `Invoice query queued for ${timeline} - ${iteratorAction === 'Continue' ? 'next page' : 'first page'}`,
       parameters: {
+        txnId,
         timeline,
+        txnDateStart,
+        txnDateEnd,
         cursor,
         iteratorAction,
         maxPerPage: maxReturned,
@@ -916,6 +945,107 @@ app.post('/api/invoices/query', (req, res) => {
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/invoices/last-month', (req, res) => {
+    try {
+      const { year, month, txnDateStart, txnDateEnd } = getLastMonthDateRange();
+      const requestedLimit = parseInt(req.query?.limit);
+      const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 30)
+        : 30;
+      const cursor = req.query?.cursor ? String(req.query.cursor) : null;
+      const iteratorAction = cursor ? 'Continue' : 'Start';
+
+      const queued = queueJobWithConnectionGuard({
+        type: 'InvoiceQuery',
+        payload: {
+          maxReturned: limit,
+          depositToAccountName: null,
+          customerName: null,
+          dateRangePreset: 'last-month',
+          txnDateStart,
+          txnDateEnd,
+          iteratorAction,
+          iteratorId: cursor
+        }
+      });
+
+      if (!queued.accepted) {
+        return res.status(503).json({
+          success: false,
+          error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+          quickbooks: queued.connection
+        });
+      }
+
+      const job = queued.queuedJob;
+      res.json({
+        success: true,
+        jobId: job.id,
+        message: `Last month invoice query queued for ${year}-${String(month).padStart(2, '0')} - ${iteratorAction === 'Continue' ? 'next page' : 'first page'}`,
+        period: {
+          year,
+          month,
+          txnDateStart,
+          txnDateEnd
+        },
+        pagination: {
+          limit,
+          qbLimit: '30 invoices max per request',
+          cursor,
+          iteratorAction
+        },
+        instruction: 'Check /api/queue?jobId=<jobId> after QBWC syncs. Use result.parsed.pagination.iteratorId as the next cursor when hasMore is true.'
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/invoices/:txnId', (req, res) => {
+    try {
+      const { txnId } = req.params;
+      if (!txnId) {
+        return res.status(400).json({ error: 'txnId is required in route param' });
+      }
+
+      const queued = queueJobWithConnectionGuard({
+        type: 'InvoiceQuery',
+        payload: {
+          maxReturned: 1,
+          txnId,
+          depositToAccountName: null,
+          customerName: null,
+          dateRangePreset: 'specific',
+          txnDateStart: null,
+          txnDateEnd: null,
+          iteratorAction: null,
+          iteratorId: null
+        }
+      });
+
+      if (!queued.accepted) {
+        return res.status(503).json({
+          success: false,
+          error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+          quickbooks: queued.connection
+        });
+      }
+
+      const job = queued.queuedJob;
+      return res.json({
+        success: true,
+        jobId: job.id,
+        message: `Invoice query queued for TxnID ${txnId}`,
+        invoice: {
+          txnId
+        },
+        instruction: 'Check /api/queue?jobId=<jobId> after QBWC syncs. The parsed invoice will include editSequence for updates.'
+      });
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
     }
   });
 

@@ -259,6 +259,7 @@ const service = {
           } else if (job.type === 'InvoiceQuery') {
             qbxml = invoiceQuery({
               maxReturned: job.payload.maxReturned || 100,
+              txnId: job.payload.txnId,
               depositToAccountName: job.payload.depositToAccountName,
               customerName: job.payload.customerName,
               dateRangePreset: job.payload.dateRangePreset,

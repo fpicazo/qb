@@ -212,6 +212,7 @@ function customerAdd({ fullName, email, phone, requestId }) {
 
 function invoiceQuery({
   maxReturned = 20,
+  txnId,
   depositToAccountName,
   customerName,
   txnDateStart,
@@ -229,11 +230,15 @@ function invoiceQuery({
   }
 
   const inner = create().ele('InvoiceQueryRq', attrs);
-  
-  // Add MaxReturned
-  inner.ele('MaxReturned').txt(String(maxReturned));
-  
-  if (txnDateStart || txnDateEnd) {
+
+  if (txnId) {
+    inner.ele('TxnID').txt(String(txnId));
+  } else {
+    // Add MaxReturned
+    inner.ele('MaxReturned').txt(String(maxReturned));
+  }
+
+  if (!txnId && (txnDateStart || txnDateEnd)) {
     const dateRange = inner.ele('ORDateRangeFilter').ele('TxnDateRangeFilter');
     if (txnDateStart) {
       dateRange.ele('FromTxnDate').txt(txnDateStart);
