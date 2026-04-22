@@ -8,7 +8,8 @@ const {
   customerAdd,
   itemAdd,
   invoiceQuery,
-  invoiceAdd
+  invoiceAdd,
+  invoiceMod
 } = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
 const config = require('./config');
@@ -288,6 +289,22 @@ const service = {
             if (job.payload.refNumber) {
               console.log('   Reference:', job.payload.refNumber);
             }
+          } else if (job.type === 'InvoiceMod') {
+            qbxml = invoiceMod({
+              txnId: job.payload.txnId,
+              editSequence: job.payload.editSequence,
+              customer: job.payload.customer,
+              txnDate: job.payload.txnDate,
+              refNumber: job.payload.refNumber,
+              memo: job.payload.memo,
+              lineItems: job.payload.lineItems,
+              billTo: job.payload.billTo,
+              shipTo: job.payload.shipTo,
+              requestId: job.id
+            });
+            console.log('ðŸ“ InvoiceMod XML generated');
+            console.log('   TxnID:', job.payload.txnId);
+            console.log('   Line Items:', job.payload.lineItems?.length || 0);
           }
           else {
             lastErrorMsg = `Unknown job type: ${job.type}`;

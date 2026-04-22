@@ -153,6 +153,7 @@ function setupRoutes(app) {
 
           return {
             txnId: invoice?.TxnID || null,
+            editSequence: invoice?.EditSequence || null,
             timeCreated: invoice?.TimeCreated || null,
             timeModified: invoice?.TimeModified || null,
             txnDate: invoice?.TxnDate || null,
@@ -917,6 +918,211 @@ app.post('/api/invoices/query', (req, res) => {
       res.status(500).json({ error: error.message });
     }
   });
+
+  function normalizeInvoiceEditItems(items, nonTaxable) {
+    if (!items || items === null) return null;
+    if (!Array.isArray(items)) {
+      throw new Error('items must be an array when provided');
+    }
+
+    return items.map((item, index) => {
+      const txnLineId = item.txnLineId || item.txnLineID || null;
+      const itemId = item.itemId || item.listId || null;
+      const itemFullName = item.itemFullName || item.fullName || item.name || null;
+      const isNewLine = !txnLineId || txnLineId === '-1';
+      const hasLineFieldChange =
+        itemId ||
+        itemFullName ||
+        item.description !== undefined ||
+        item.quantity !== undefined ||
+        item.rate !== undefined ||
+        item.amount !== undefined ||
+        item.taxable !== undefined ||
+        item.isTaxable !== undefined ||
+        item.salesTaxCode !== undefined ||
+        item.taxCode !== undefined ||
+        item.taxCodeName !== undefined;
+
+      if (!hasLineFieldChange) {
+        throw new Error(`Item ${index + 1}: at least one line field must be provided`);
+      }
+
+      if (isNewLine && !itemId && !itemFullName) {
+        throw new Error(`Item ${index + 1}: itemId or itemFullName is required for new invoice lines`);
+      }
+
+      if (isNewLine && (item.quantity === undefined || item.quantity === null)) {
+        throw new Error(`Item ${index + 1}: quantity is required for new invoice lines`);
+      }
+
+      if (isNewLine && item.amount === undefined && (item.rate === undefined || item.rate === null)) {
+        throw new Error(`Item ${index + 1}: rate or amount is required for new invoice lines`);
+      }
+
+      if (item.quantity !== undefined && item.quantity !== null && !Number.isFinite(Number(item.quantity))) {
+        throw new Error(`Item ${index + 1}: quantity must be numeric`);
+      }
+
+      if (item.rate !== undefined && item.rate !== null && !Number.isFinite(Number(item.rate))) {
+        throw new Error(`Item ${index + 1}: rate must be numeric`);
+      }
+
+      if (item.amount !== undefined && item.amount !== null && !Number.isFinite(Number(item.amount))) {
+        throw new Error(`Item ${index + 1}: amount must be numeric`);
+      }
+
+      const rawTaxable = item.taxable !== undefined ? item.taxable : item.isTaxable;
+      const taxableLooksValid =
+        rawTaxable === undefined ||
+        rawTaxable === null ||
+        typeof rawTaxable === 'boolean' ||
+        rawTaxable === 'true' ||
+        rawTaxable === 'false' ||
+        rawTaxable === '1' ||
+        rawTaxable === '0' ||
+        rawTaxable === 1 ||
+        rawTaxable === 0;
+
+      if (!taxableLooksValid) {
+        throw new Error(`Item ${index + 1}: taxable/isTaxable must be boolean (or 'true'/'false'/'1'/'0') when provided`);
+      }
+
+      const rawSalesTaxCode = item.salesTaxCode ?? item.taxCode ?? item.taxCodeName;
+      if (rawSalesTaxCode !== undefined && rawSalesTaxCode !== null) {
+        const isStringCode = typeof rawSalesTaxCode === 'string' && rawSalesTaxCode.trim() !== '';
+        const isObjectCode = typeof rawSalesTaxCode === 'object' &&
+          (rawSalesTaxCode.listId || rawSalesTaxCode.fullName);
+
+        if (!isStringCode && !isObjectCode) {
+          throw new Error(`Item ${index + 1}: salesTaxCode/taxCode/taxCodeName must be a non-empty string or object with listId/fullName`);
+        }
+      }
+
+      return {
+        txnLineId: txnLineId || '-1',
+        item: itemId || itemFullName
+          ? {
+              listId: itemId || undefined,
+              fullName: itemFullName || undefined
+            }
+          : null,
+        description: item.description,
+        quantity: item.quantity,
+        rate: item.rate,
+        amount: item.amount,
+        taxable: (() => {
+          if (rawTaxable === undefined || rawTaxable === null) {
+            return nonTaxable === true ? false : undefined;
+          }
+          if (rawTaxable === false || rawTaxable === 'false' || rawTaxable === 0 || rawTaxable === '0') return false;
+          if (rawTaxable === true || rawTaxable === 'true' || rawTaxable === 1 || rawTaxable === '1') return true;
+          return undefined;
+        })(),
+        salesTaxCode: (() => {
+          if (!rawSalesTaxCode) return null;
+          if (typeof rawSalesTaxCode === 'string') return { fullName: rawSalesTaxCode.trim() };
+          return rawSalesTaxCode;
+        })()
+      };
+    });
+  }
+
+  function handleInvoiceEdit(req, res) {
+    try {
+      const {
+        editSequence,
+        customerId,
+        customerFullName,
+        txnDate,
+        refNumber,
+        billTo,
+        shipTo,
+        memo,
+        items,
+        nonTaxable
+      } = req.body || {};
+      const txnId = req.params?.txnId || req.body?.txnId;
+
+      if (!txnId) {
+        return res.status(400).json({ error: 'txnId is required in route param or body' });
+      }
+
+      if (!editSequence) {
+        return res.status(400).json({ error: 'editSequence is required' });
+      }
+
+      if (nonTaxable !== undefined && nonTaxable !== null && typeof nonTaxable !== 'boolean') {
+        return res.status(400).json({ error: 'nonTaxable must be boolean when provided' });
+      }
+
+      const lineItems = normalizeInvoiceEditItems(items, nonTaxable);
+      const hasHeaderChanges = Boolean(
+        customerId ||
+        customerFullName ||
+        txnDate ||
+        refNumber !== undefined ||
+        billTo ||
+        shipTo ||
+        memo !== undefined
+      );
+      const hasLineChanges = Array.isArray(lineItems) && lineItems.length > 0;
+
+      if (!hasHeaderChanges && !hasLineChanges) {
+        return res.status(400).json({
+          error: 'At least one editable invoice field or item line is required'
+        });
+      }
+
+      const queued = queueJobWithConnectionGuard({
+        type: 'InvoiceMod',
+        payload: {
+          txnId,
+          editSequence,
+          customer: customerId || customerFullName
+            ? {
+                listId: customerId || null,
+                fullName: customerFullName || null
+              }
+            : null,
+          txnDate: txnDate || null,
+          refNumber: refNumber !== undefined ? refNumber : null,
+          memo: memo !== undefined ? memo : null,
+          lineItems,
+          billTo: billTo || null,
+          shipTo: shipTo || null
+        }
+      });
+
+      if (!queued.accepted) {
+        return res.status(503).json({
+          success: false,
+          error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+          quickbooks: queued.connection
+        });
+      }
+
+      const job = queued.queuedJob;
+      return res.json({
+        success: true,
+        jobId: job.id,
+        message: 'Invoice edit job queued',
+        invoice: {
+          txnId,
+          editSequence,
+          headerFieldsQueued: hasHeaderChanges,
+          lineItemsQueued: hasLineChanges ? lineItems.length : 0
+        },
+        instruction: 'Check /api/queue for results after QBWC syncs'
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+  }
+
+  app.patch('/api/invoices/:txnId', handleInvoiceEdit);
+  app.put('/api/invoices/:txnId', handleInvoiceEdit);
+  app.patch('/api/invoices', handleInvoiceEdit);
+  app.put('/api/invoices', handleInvoiceEdit);
 
   app.post('/api/invoices', (req, res) => {
   try {

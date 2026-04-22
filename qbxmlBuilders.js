@@ -248,6 +248,7 @@ function invoiceQuery({
   
   // Request all fields so we can filter client-side
   inner.ele('IncludeRetElement').txt('TxnID');
+  inner.ele('IncludeRetElement').txt('EditSequence');
   inner.ele('IncludeRetElement').txt('TimeCreated');
   inner.ele('IncludeRetElement').txt('TimeModified');
   inner.ele('IncludeRetElement').txt('DocNumber');
@@ -410,6 +411,128 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
   return wrapRq(root);
 }
 
+function addAddress(parent, elementName, address) {
+  if (!address) return;
+
+  const addr = parent.ele(elementName);
+  if (address.address1) addr.ele('Addr1').txt(address.address1);
+  if (address.address2) addr.ele('Addr2').txt(address.address2);
+  if (address.address3) addr.ele('Addr3').txt(address.address3);
+  if (address.address4) addr.ele('Addr4').txt(address.address4);
+  if (address.address5) addr.ele('Addr5').txt(address.address5);
+  if (address.city) addr.ele('City').txt(address.city);
+  if (address.state) addr.ele('State').txt(address.state);
+  if (address.postalCode) addr.ele('PostalCode').txt(address.postalCode);
+  if (address.country) addr.ele('Country').txt(address.country);
+  if (address.note) addr.ele('Note').txt(address.note);
+}
+
+function addRef(parent, elementName, ref) {
+  if (!ref || (!ref.listId && !ref.fullName)) return;
+
+  const refNode = parent.ele(elementName);
+  if (ref.listId) {
+    refNode.ele('ListID').txt(ref.listId);
+  } else {
+    refNode.ele('FullName').txt(ref.fullName);
+  }
+}
+
+function addLineTaxCode(parent, line) {
+  const rawSalesTaxCode = line.salesTaxCode ?? line.taxCode ?? null;
+  const normalizedSalesTaxCode = typeof rawSalesTaxCode === 'string'
+    ? { fullName: rawSalesTaxCode.trim() }
+    : rawSalesTaxCode;
+  const isNonTaxable =
+    line.taxable === false ||
+    line.taxable === 'false' ||
+    line.taxable === 0 ||
+    line.taxable === '0';
+
+  if (normalizedSalesTaxCode && (normalizedSalesTaxCode.listId || normalizedSalesTaxCode.fullName)) {
+    addRef(parent, 'SalesTaxCodeRef', normalizedSalesTaxCode);
+  } else if (isNonTaxable) {
+    parent.ele('SalesTaxCodeRef').ele('FullName').txt('Non');
+  }
+}
+
+function invoiceMod({
+  txnId,
+  editSequence,
+  customer,
+  txnDate,
+  refNumber,
+  memo,
+  lineItems,
+  billTo,
+  shipTo,
+  requestId
+}) {
+  if (!txnId) {
+    throw new Error('txnId is required');
+  }
+
+  if (!editSequence) {
+    throw new Error('editSequence is required');
+  }
+
+  const root = create();
+  const req = root.ele('InvoiceModRq', { requestID: resolveRequestId(requestId, 'invoice-mod-1') });
+  const mod = req.ele('InvoiceMod');
+
+  mod.ele('TxnID').txt(txnId);
+  mod.ele('EditSequence').txt(editSequence);
+
+  addRef(mod, 'CustomerRef', customer);
+
+  if (txnDate) {
+    mod.ele('TxnDate').txt(txnDate);
+  }
+
+  if (refNumber !== undefined && refNumber !== null) {
+    mod.ele('RefNumber').txt(String(refNumber));
+  }
+
+  addAddress(mod, 'BillAddress', billTo);
+  addAddress(mod, 'ShipAddress', shipTo);
+
+  if (memo !== undefined && memo !== null) {
+    mod.ele('Memo').txt(String(memo));
+  }
+
+  if (Array.isArray(lineItems)) {
+    lineItems.forEach((line, index) => {
+      const lineMod = mod.ele('InvoiceLineMod');
+      const txnLineId = line.txnLineId || line.txnLineID || '-1';
+      lineMod.ele('TxnLineID').txt(String(txnLineId));
+
+      if (line.item) {
+        addRef(lineMod, 'ItemRef', line.item);
+      } else if (txnLineId === '-1') {
+        throw new Error(`Line item ${index + 1}: item reference is required for new invoice lines`);
+      }
+
+      if (line.description !== undefined && line.description !== null) {
+        lineMod.ele('Desc').txt(String(line.description));
+      }
+
+      if (line.quantity !== undefined && line.quantity !== null) {
+        lineMod.ele('Quantity').txt(String(line.quantity));
+      }
+
+      if (line.amount !== undefined && line.amount !== null) {
+        lineMod.ele('Amount').txt(Number(line.amount).toFixed(2));
+      } else if (line.rate !== undefined && line.rate !== null) {
+        lineMod.ele('Rate').txt(Number(line.rate).toFixed(2));
+      }
+
+      addLineTaxCode(lineMod, line);
+    });
+  }
+
+  return wrapRq(root);
+}
+
 
 
 
@@ -422,7 +545,8 @@ module.exports = {
   itemAdd,
   customerAdd,
   invoiceQuery,
-  invoiceAdd
+  invoiceAdd,
+  invoiceMod
   
 
 };
