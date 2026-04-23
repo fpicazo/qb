@@ -225,6 +225,57 @@ function setupRoutes(app) {
       txnDateEnd: formatDateOnly(lastDay)
     };
   }
+
+  function normalizeAddressInput(value, fieldName) {
+    if (value === undefined || value === null || value === '') return null;
+
+    let address = value;
+    if (typeof address === 'string') {
+      try {
+        address = JSON.parse(address);
+      } catch (error) {
+        throw new Error(`${fieldName} must be an address object or a JSON object string`);
+      }
+    }
+
+    if (!address || typeof address !== 'object' || Array.isArray(address)) {
+      throw new Error(`${fieldName} must be an address object`);
+    }
+
+    const readFirst = (...keys) => {
+      for (const key of keys) {
+        if (address[key] !== undefined && address[key] !== null && String(address[key]) !== '') {
+          return String(address[key]);
+        }
+      }
+      return undefined;
+    };
+
+    const normalized = {
+      address1: readFirst('address1', 'addr1', 'Addr1'),
+      address2: readFirst('address2', 'addr2', 'Addr2'),
+      address3: readFirst('address3', 'addr3', 'Addr3'),
+      address4: readFirst('address4', 'addr4', 'Addr4'),
+      address5: readFirst('address5', 'addr5', 'Addr5'),
+      city: readFirst('city', 'City'),
+      state: readFirst('state', 'State'),
+      postalCode: readFirst('postalCode', 'postal', 'zip', 'PostalCode'),
+      country: readFirst('country', 'Country'),
+      note: readFirst('note', 'Note')
+    };
+
+    Object.keys(normalized).forEach((key) => {
+      if (normalized[key] === undefined) {
+        delete normalized[key];
+      }
+    });
+
+    if (Object.keys(normalized).length === 0) {
+      throw new Error(`${fieldName} must include at least one address field`);
+    }
+
+    return normalized;
+  }
   
   // Home page - Web interface
   app.get('/', (req, res) => {
@@ -1186,13 +1237,15 @@ app.post('/api/invoices/query', (req, res) => {
       }
 
       const lineItems = normalizeInvoiceEditItems(items, nonTaxable);
+      const normalizedBillTo = normalizeAddressInput(billTo, 'billTo');
+      const normalizedShipTo = normalizeAddressInput(shipTo, 'shipTo');
       const hasHeaderChanges = Boolean(
         customerId ||
         customerFullName ||
         txnDate ||
         refNumber !== undefined ||
-        billTo ||
-        shipTo ||
+        normalizedBillTo ||
+        normalizedShipTo ||
         memo !== undefined
       );
       const hasLineChanges = Array.isArray(lineItems) && lineItems.length > 0;
@@ -1218,8 +1271,8 @@ app.post('/api/invoices/query', (req, res) => {
           refNumber: refNumber !== undefined ? refNumber : null,
           memo: memo !== undefined ? memo : null,
           lineItems,
-          billTo: billTo || null,
-          shipTo: shipTo || null
+          billTo: normalizedBillTo,
+          shipTo: normalizedShipTo
         }
       });
 
@@ -1257,6 +1310,8 @@ app.post('/api/invoices/query', (req, res) => {
   app.post('/api/invoices', (req, res) => {
   try {
     const { customerId, txnDate, items, billTo, shipTo, memo, nonTaxable } = req.body || {};
+    const normalizedBillTo = normalizeAddressInput(billTo, 'billTo');
+    const normalizedShipTo = normalizeAddressInput(shipTo, 'shipTo');
     
     // Validation
     if (!customerId) {
@@ -1359,8 +1414,8 @@ app.post('/api/invoices/query', (req, res) => {
         refNumber: null,
         memo: memo || null,
         lineItems,
-        billTo: billTo || null,
-        shipTo: shipTo || null
+        billTo: normalizedBillTo,
+        shipTo: normalizedShipTo
       }
     });
     if (!queued.accepted) {

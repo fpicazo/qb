@@ -311,35 +311,8 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
     add.ele('RefNumber').txt(refNumber);
   }
   
-  // Add optional bill to address
-  if (billTo) {
-    const billAddr = add.ele('BillAddress');
-    if (billTo.address1) billAddr.ele('Addr1').txt(billTo.address1);
-    if (billTo.address2) billAddr.ele('Addr2').txt(billTo.address2);
-    if (billTo.address3) billAddr.ele('Addr3').txt(billTo.address3);
-    if (billTo.address4) billAddr.ele('Addr4').txt(billTo.address4);
-    if (billTo.address5) billAddr.ele('Addr5').txt(billTo.address5);
-    if (billTo.city) billAddr.ele('City').txt(billTo.city);
-    if (billTo.state) billAddr.ele('State').txt(billTo.state);
-    if (billTo.postalCode) billAddr.ele('PostalCode').txt(billTo.postalCode);
-    if (billTo.country) billAddr.ele('Country').txt(billTo.country);
-    if (billTo.note) billAddr.ele('Note').txt(billTo.note);
-  }
-  
-  // Add optional ship to address
-  if (shipTo) {
-    const shipAddr = add.ele('ShipAddress');
-    if (shipTo.address1) shipAddr.ele('Addr1').txt(shipTo.address1);
-    if (shipTo.address2) shipAddr.ele('Addr2').txt(shipTo.address2);
-    if (shipTo.address3) shipAddr.ele('Addr3').txt(shipTo.address3);
-    if (shipTo.address4) shipAddr.ele('Addr4').txt(shipTo.address4);
-    if (shipTo.address5) shipAddr.ele('Addr5').txt(shipTo.address5);
-    if (shipTo.city) shipAddr.ele('City').txt(shipTo.city);
-    if (shipTo.state) shipAddr.ele('State').txt(shipTo.state);
-    if (shipTo.postalCode) shipAddr.ele('PostalCode').txt(shipTo.postalCode);
-    if (shipTo.country) shipAddr.ele('Country').txt(shipTo.country);
-    if (shipTo.note) shipAddr.ele('Note').txt(shipTo.note);
-  }
+  addAddress(add, 'BillAddress', billTo);
+  addAddress(add, 'ShipAddress', shipTo);
   
   // Add optional memo
   if (memo) {
@@ -419,17 +392,31 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
 function addAddress(parent, elementName, address) {
   if (!address) return;
 
+  if (typeof address !== 'object' || Array.isArray(address)) {
+    throw new Error(`${elementName} must be an address object`);
+  }
+
+  const fields = [
+    ['address1', 'Addr1'],
+    ['address2', 'Addr2'],
+    ['address3', 'Addr3'],
+    ['address4', 'Addr4'],
+    ['address5', 'Addr5'],
+    ['city', 'City'],
+    ['state', 'State'],
+    ['postalCode', 'PostalCode'],
+    ['country', 'Country'],
+    ['note', 'Note']
+  ].filter(([key]) => address[key] !== undefined && address[key] !== null && String(address[key]) !== '');
+
+  if (fields.length === 0) {
+    throw new Error(`${elementName} must include at least one address field`);
+  }
+
   const addr = parent.ele(elementName);
-  if (address.address1) addr.ele('Addr1').txt(address.address1);
-  if (address.address2) addr.ele('Addr2').txt(address.address2);
-  if (address.address3) addr.ele('Addr3').txt(address.address3);
-  if (address.address4) addr.ele('Addr4').txt(address.address4);
-  if (address.address5) addr.ele('Addr5').txt(address.address5);
-  if (address.city) addr.ele('City').txt(address.city);
-  if (address.state) addr.ele('State').txt(address.state);
-  if (address.postalCode) addr.ele('PostalCode').txt(address.postalCode);
-  if (address.country) addr.ele('Country').txt(address.country);
-  if (address.note) addr.ele('Note').txt(address.note);
+  fields.forEach(([key, tag]) => {
+    addr.ele(tag).txt(String(address[key]));
+  });
 }
 
 function addRef(parent, elementName, ref) {
