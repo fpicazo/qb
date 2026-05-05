@@ -155,6 +155,21 @@ function itemGroupProductsQuery({ itemId, requestId } = {}) {
   return wrapRq(inner);
 }
 
+function itemInventoryAssemblyComponentsQuery({ itemId, requestId } = {}) {
+  if (!itemId) {
+    throw new Error('itemId is required');
+  }
+
+  const inner = create().ele('ItemInventoryAssemblyQueryRq', {
+    requestID: resolveRequestId(requestId, 'item-assembly-components-query-1')
+  });
+  inner.ele('ListID').txt(String(itemId));
+
+  // Intentionally do not use IncludeRetElement here so QB returns full assembly line data.
+  inner.up();
+  return wrapRq(inner);
+}
+
 function itemAdd({ type = 'Service', name, description, price, account, requestId }) {
   if (!name) throw new Error('Item name is required');
   
@@ -534,6 +549,7 @@ module.exports = {
   itemQuery,
   itemGroupQuery,
   itemGroupProductsQuery,
+  itemInventoryAssemblyComponentsQuery,
   itemAdd,
   customerAdd,
   invoiceQuery,

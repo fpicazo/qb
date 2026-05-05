@@ -5,6 +5,7 @@ const {
   itemQuery,
   itemGroupQuery,
   itemGroupProductsQuery,
+  itemInventoryAssemblyComponentsQuery,
   customerAdd,
   itemAdd,
   invoiceQuery,
@@ -243,6 +244,14 @@ const service = {
               requestId: job.id
             });
             console.log('📝 ItemGroupProductsQuery XML generated');
+            console.log('   Item ListID:', job.payload.itemId);
+          }
+          else if (job.type === 'ItemInventoryAssemblyComponentsQuery') {
+            qbxml = itemInventoryAssemblyComponentsQuery({
+              itemId: job.payload.itemId,
+              requestId: job.id
+            });
+            console.log('ItemInventoryAssemblyComponentsQuery XML generated');
             console.log('   Item ListID:', job.payload.itemId);
           }
           else if (job.type === 'ItemAdd') {

@@ -86,6 +86,46 @@ function setupRoutes(app) {
     });
   }
 
+  function parseItemInventoryAssemblyComponents(rawXml) {
+    return new Promise((resolve, reject) => {
+      parseString(rawXml, { explicitArray: false }, (err, result) => {
+        if (err) return reject(err);
+
+        const rs = result?.QBXML?.QBXMLMsgsRs?.ItemInventoryAssemblyQueryRs || {};
+        const assemblies = toArray(rs.ItemInventoryAssemblyRet);
+
+        if (assemblies.length === 0) {
+          return resolve({
+            assemblyCount: 0,
+            assemblies: [],
+            components: []
+          });
+        }
+
+        const normalizedAssemblies = assemblies.map((assembly) => {
+          const lines = toArray(assembly.ItemInventoryAssemblyLineRet || assembly.ItemInventoryAssemblyLine).map((line) => ({
+            itemId: line?.ItemInventoryRef?.ListID || line?.ItemRef?.ListID || null,
+            fullName: line?.ItemInventoryRef?.FullName || line?.ItemRef?.FullName || line?.ItemInventoryRef?.Name || line?.ItemRef?.Name || null,
+            quantity: line?.Quantity !== undefined ? Number(line.Quantity) : null
+          }));
+
+          return {
+            itemId: assembly.ListID || null,
+            fullName: assembly.FullName || null,
+            name: assembly.Name || null,
+            components: lines
+          };
+        });
+
+        return resolve({
+          assemblyCount: normalizedAssemblies.length,
+          assemblies: normalizedAssemblies,
+          components: normalizedAssemblies[0]?.components || []
+        });
+      });
+    });
+  }
+
   function parseItemQueryResponse(rawXml) {
     return new Promise((resolve, reject) => {
       parseString(rawXml, { explicitArray: false }, (err, result) => {
@@ -795,6 +835,70 @@ app.get('/api/items/group-products/:itemId', async (req, res) => {
       status: job.status,
       message: 'Item group product query job queued.',
       instruction: `Re-call GET /api/items/group-products/${encodeURIComponent(itemId)} after QBWC syncs, or check /api/queue with jobId: ${job.id}`
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/items/assembly-components/:itemId', async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    if (!itemId) {
+      return res.status(400).json({ error: 'itemId is required in route param' });
+    }
+
+    const { _queue } = require('./queue');
+
+    const sameItemJobs = _queue
+      .filter((job) => job.type === 'ItemInventoryAssemblyComponentsQuery' && String(job?.payload?.itemId) === String(itemId))
+      .sort((a, b) => Number(b.id) - Number(a.id));
+
+    const existingDone = sameItemJobs.find((job) => job.status === 'done' && job?.result?.raw);
+    if (existingDone) {
+      const parsed = await parseItemInventoryAssemblyComponents(existingDone.result.raw);
+      return res.json({
+        success: true,
+        source: 'cache',
+        jobId: existingDone.id,
+        itemId,
+        ...parsed
+      });
+    }
+
+    const existingRunning = sameItemJobs.find((job) => job.status === 'pending' || job.status === 'processing');
+    if (existingRunning) {
+      return res.status(202).json({
+        success: true,
+        itemId,
+        jobId: existingRunning.id,
+        status: existingRunning.status,
+        message: 'An assembly-components query for this item is already in progress.',
+        instruction: `Check /api/queue with jobId: ${existingRunning.id}`
+      });
+    }
+
+    const queued = queueJobWithConnectionGuard({
+      type: 'ItemInventoryAssemblyComponentsQuery',
+      payload: { itemId }
+    });
+
+    if (!queued.accepted) {
+      return res.status(503).json({
+        success: false,
+        error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+        quickbooks: queued.connection
+      });
+    }
+
+    const job = queued.queuedJob;
+    return res.status(202).json({
+      success: true,
+      itemId,
+      jobId: job.id,
+      status: job.status,
+      message: 'Inventory assembly components query job queued.',
+      instruction: `Re-call GET /api/items/assembly-components/${encodeURIComponent(itemId)} after QBWC syncs, or check /api/queue with jobId: ${job.id}`
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
