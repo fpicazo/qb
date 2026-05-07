@@ -1710,8 +1710,24 @@ app.post('/api/invoices/query', (req, res) => {
         };
       });
 
-      if (totalAmount !== undefined && totalAmount !== null && !Number.isFinite(Number(totalAmount))) {
+      const derivedTotalAmount = normalizedAppliedTo.reduce((sum, item) => {
+        return sum + (item.paymentAmount !== null && item.paymentAmount !== undefined ? Number(item.paymentAmount) : 0);
+      }, 0);
+
+      const normalizedTotalAmount = totalAmount !== undefined && totalAmount !== null
+        ? Number(totalAmount)
+        : derivedTotalAmount > 0
+          ? derivedTotalAmount
+          : null;
+
+      if (normalizedTotalAmount !== null && !Number.isFinite(normalizedTotalAmount)) {
         return res.status(400).json({ error: 'totalAmount must be numeric when provided' });
+      }
+
+      if (normalizedTotalAmount === null) {
+        return res.status(400).json({
+          error: 'totalAmount is required when appliedTo paymentAmount values are missing'
+        });
       }
 
       const queued = queueJobWithConnectionGuard({
@@ -1724,7 +1740,7 @@ app.post('/api/invoices/query', (req, res) => {
           arAccount: normalizedArAccount,
           txnDate: txnDate || null,
           refNumber: refNumber !== undefined ? refNumber : null,
-          totalAmount: totalAmount !== undefined && totalAmount !== null ? Number(totalAmount) : null,
+          totalAmount: normalizedTotalAmount,
           paymentMethod: normalizedPaymentMethod,
           memo: memo || null,
           depositToAccount: normalizedDepositToAccount,
@@ -1749,7 +1765,7 @@ app.post('/api/invoices/query', (req, res) => {
           customerId: customerId || null,
           customerFullName: customerFullName || null,
           txnDate: txnDate || 'Today',
-          totalAmount: totalAmount !== undefined && totalAmount !== null ? Number(totalAmount) : null,
+          totalAmount: normalizedTotalAmount,
           appliedTo: normalizedAppliedTo.length
         },
         instruction: 'Check /api/queue for results after QBWC syncs'
