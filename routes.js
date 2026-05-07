@@ -1524,7 +1524,7 @@ app.post('/api/invoices/query', (req, res) => {
 
   app.post('/api/invoices', (req, res) => {
   try {
-    const { customerId, arAccount, txnDate, items, billTo, shipTo, memo, nonTaxable } = req.body || {};
+    const { customerId, arAccount, txnDate, refNumber, items, billTo, shipTo, memo, nonTaxable } = req.body || {};
     const normalizedBillTo = normalizeAddressInput(billTo, 'billTo');
     const normalizedShipTo = normalizeAddressInput(shipTo, 'shipTo');
     const normalizedArAccount = normalizeRefInput(arAccount, 'arAccount');
@@ -1628,7 +1628,7 @@ app.post('/api/invoices/query', (req, res) => {
         },
         arAccount: normalizedArAccount,
         txnDate: txnDate || null,
-        refNumber: null,
+        refNumber: refNumber !== undefined ? refNumber : null,
         memo: memo || null,
         lineItems,
         billTo: normalizedBillTo,
@@ -1659,6 +1659,105 @@ app.post('/api/invoices/query', (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+  app.post('/api/payments', (req, res) => {
+    try {
+      const {
+        customerId,
+        customerFullName,
+        arAccount,
+        txnDate,
+        refNumber,
+        totalAmount,
+        paymentMethod,
+        memo,
+        depositToAccount,
+        appliedTo
+      } = req.body || {};
+
+      if (!customerId && !customerFullName) {
+        return res.status(400).json({ error: 'customerId or customerFullName is required' });
+      }
+
+      if (!Array.isArray(appliedTo) || appliedTo.length === 0) {
+        return res.status(400).json({ error: 'appliedTo array is required (min 1)' });
+      }
+
+      const normalizedArAccount = normalizeRefInput(arAccount, 'arAccount');
+      const normalizedPaymentMethod = normalizeRefInput(paymentMethod, 'paymentMethod');
+      const normalizedDepositToAccount = normalizeRefInput(depositToAccount, 'depositToAccount');
+
+      const normalizedAppliedTo = appliedTo.map((item, index) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          throw new Error(`Applied transaction ${index + 1} must be an object`);
+        }
+
+        const txnId = item.txnId || item.invoiceTxnId || item.TxnID || null;
+        if (!txnId) {
+          throw new Error(`Applied transaction ${index + 1}: txnId is required`);
+        }
+
+        const paymentAmount = item.paymentAmount ?? item.amount ?? null;
+        if (paymentAmount !== null && paymentAmount !== undefined && !Number.isFinite(Number(paymentAmount))) {
+          throw new Error(`Applied transaction ${index + 1}: paymentAmount must be numeric when provided`);
+        }
+
+        return {
+          txnId: String(txnId),
+          paymentAmount: paymentAmount !== null && paymentAmount !== undefined
+            ? Number(paymentAmount)
+            : null
+        };
+      });
+
+      if (totalAmount !== undefined && totalAmount !== null && !Number.isFinite(Number(totalAmount))) {
+        return res.status(400).json({ error: 'totalAmount must be numeric when provided' });
+      }
+
+      const queued = queueJobWithConnectionGuard({
+        type: 'ReceivePaymentAdd',
+        payload: {
+          customer: {
+            listId: customerId || null,
+            fullName: customerFullName || null
+          },
+          arAccount: normalizedArAccount,
+          txnDate: txnDate || null,
+          refNumber: refNumber !== undefined ? refNumber : null,
+          totalAmount: totalAmount !== undefined && totalAmount !== null ? Number(totalAmount) : null,
+          paymentMethod: normalizedPaymentMethod,
+          memo: memo || null,
+          depositToAccount: normalizedDepositToAccount,
+          appliedTo: normalizedAppliedTo
+        }
+      });
+
+      if (!queued.accepted) {
+        return res.status(503).json({
+          success: false,
+          error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+          quickbooks: queued.connection
+        });
+      }
+
+      const job = queued.queuedJob;
+      return res.json({
+        success: true,
+        jobId: job.id,
+        message: 'Receive payment job queued',
+        payment: {
+          customerId: customerId || null,
+          customerFullName: customerFullName || null,
+          txnDate: txnDate || 'Today',
+          totalAmount: totalAmount !== undefined && totalAmount !== null ? Number(totalAmount) : null,
+          appliedTo: normalizedAppliedTo.length
+        },
+        instruction: 'Check /api/queue for results after QBWC syncs'
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+  });
 
 
 

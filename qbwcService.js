@@ -10,7 +10,8 @@ const {
   itemAdd,
   invoiceQuery,
   invoiceAdd,
-  invoiceMod
+  invoiceMod,
+  receivePaymentAdd
 } = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
 const config = require('./config');
@@ -317,8 +318,23 @@ const service = {
             console.log('ðŸ“ InvoiceMod XML generated');
             console.log('   TxnID:', job.payload.txnId);
             console.log('   Line Items:', job.payload.lineItems?.length || 0);
-          }
-          else {
+          } else if (job.type === 'ReceivePaymentAdd') {
+            qbxml = receivePaymentAdd({
+              customer: job.payload.customer,
+              arAccount: job.payload.arAccount,
+              txnDate: job.payload.txnDate,
+              refNumber: job.payload.refNumber,
+              totalAmount: job.payload.totalAmount,
+              paymentMethod: job.payload.paymentMethod,
+              memo: job.payload.memo,
+              depositToAccount: job.payload.depositToAccount,
+              appliedTo: job.payload.appliedTo,
+              requestId: job.id
+            });
+            console.log('ReceivePaymentAdd XML generated');
+            console.log('   Customer:', job.payload.customer.listId || job.payload.customer.fullName);
+            console.log('   Applied To:', job.payload.appliedTo?.length || 0);
+          } else {
             lastErrorMsg = `Unknown job type: ${job.type}`;
             console.error('❌', lastErrorMsg);
             markError(job.id, lastErrorMsg);

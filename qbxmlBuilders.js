@@ -544,6 +544,69 @@ function invoiceMod({
   return wrapRq(root);
 }
 
+function receivePaymentAdd({
+  customer,
+  arAccount,
+  txnDate,
+  refNumber,
+  totalAmount,
+  paymentMethod,
+  memo,
+  depositToAccount,
+  appliedTo,
+  requestId
+}) {
+  if (!customer || (!customer.listId && !customer.fullName)) {
+    throw new Error('Customer reference (listId or fullName) is required');
+  }
+
+  if (!Array.isArray(appliedTo) || appliedTo.length === 0) {
+    throw new Error('At least one applied transaction is required');
+  }
+
+  const root = create();
+  const req = root.ele('ReceivePaymentAddRq', { requestID: resolveRequestId(requestId, 'receive-payment-1') });
+  const add = req.ele('ReceivePaymentAdd');
+
+  addRef(add, 'CustomerRef', customer);
+  addRef(add, 'ARAccountRef', arAccount);
+
+  if (txnDate) {
+    add.ele('TxnDate').txt(txnDate);
+  }
+
+  if (refNumber !== undefined && refNumber !== null && String(refNumber) !== '') {
+    add.ele('RefNumber').txt(String(refNumber));
+  }
+
+  if (totalAmount !== undefined && totalAmount !== null) {
+    add.ele('TotalAmount').txt(Number(totalAmount).toFixed(2));
+  }
+
+  addRef(add, 'PaymentMethodRef', paymentMethod);
+
+  if (memo) {
+    add.ele('Memo').txt(String(memo));
+  }
+
+  addRef(add, 'DepositToAccountRef', depositToAccount);
+
+  appliedTo.forEach((application, index) => {
+    if (!application || !application.txnId) {
+      throw new Error(`Applied transaction ${index + 1}: txnId is required`);
+    }
+
+    const appliedNode = add.ele('AppliedToTxnAdd');
+    appliedNode.ele('TxnID').txt(String(application.txnId));
+
+    if (application.paymentAmount !== undefined && application.paymentAmount !== null) {
+      appliedNode.ele('PaymentAmount').txt(Number(application.paymentAmount).toFixed(2));
+    }
+  });
+
+  return wrapRq(root);
+}
+
 
 
 
@@ -558,7 +621,8 @@ module.exports = {
   customerAdd,
   invoiceQuery,
   invoiceAdd,
-  invoiceMod
+  invoiceMod,
+  receivePaymentAdd
   
 
 };
