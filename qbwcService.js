@@ -286,7 +286,6 @@ const service = {
           } else if (job.type === 'InvoiceAdd') {
             qbxml = invoiceAdd({
               customer: job.payload.customer,
-              arAccount: job.payload.arAccount,
               txnDate: job.payload.txnDate,
               refNumber: job.payload.refNumber,
               memo: job.payload.memo,
@@ -306,7 +305,6 @@ const service = {
               txnId: job.payload.txnId,
               editSequence: job.payload.editSequence,
               customer: job.payload.customer,
-              arAccount: job.payload.arAccount,
               txnDate: job.payload.txnDate,
               refNumber: job.payload.refNumber,
               memo: job.payload.memo,

@@ -1425,7 +1425,6 @@ app.post('/api/invoices/query', (req, res) => {
         editSequence,
         customerId,
         customerFullName,
-        arAccount,
         txnDate,
         refNumber,
         billTo,
@@ -1451,11 +1450,9 @@ app.post('/api/invoices/query', (req, res) => {
       const lineItems = normalizeInvoiceEditItems(items, nonTaxable);
       const normalizedBillTo = normalizeAddressInput(billTo, 'billTo');
       const normalizedShipTo = normalizeAddressInput(shipTo, 'shipTo');
-      const normalizedArAccount = normalizeRefInput(arAccount, 'arAccount');
       const hasHeaderChanges = Boolean(
         customerId ||
         customerFullName ||
-        normalizedArAccount ||
         txnDate ||
         refNumber !== undefined ||
         normalizedBillTo ||
@@ -1481,7 +1478,6 @@ app.post('/api/invoices/query', (req, res) => {
                 fullName: customerFullName || null
               }
             : null,
-          arAccount: normalizedArAccount,
           txnDate: txnDate || null,
           refNumber: refNumber !== undefined ? refNumber : null,
           memo: memo !== undefined ? memo : null,
@@ -1524,10 +1520,9 @@ app.post('/api/invoices/query', (req, res) => {
 
   app.post('/api/invoices', (req, res) => {
   try {
-    const { customerId, arAccount, txnDate, refNumber, items, billTo, shipTo, memo, nonTaxable } = req.body || {};
+    const { customerId, txnDate, refNumber, items, billTo, shipTo, memo, nonTaxable } = req.body || {};
     const normalizedBillTo = normalizeAddressInput(billTo, 'billTo');
     const normalizedShipTo = normalizeAddressInput(shipTo, 'shipTo');
-    const normalizedArAccount = normalizeRefInput(arAccount, 'arAccount');
     
     // Validation
     if (!customerId) {
@@ -1626,7 +1621,6 @@ app.post('/api/invoices/query', (req, res) => {
         customer: {
           listId: customerId
         },
-        arAccount: normalizedArAccount,
         txnDate: txnDate || null,
         refNumber: refNumber !== undefined ? refNumber : null,
         memo: memo || null,
@@ -1667,6 +1661,7 @@ app.post('/api/invoices/query', (req, res) => {
         customerFullName,
         arAccount,
         txnDate,
+        invoiceDate,
         refNumber,
         totalAmount,
         paymentMethod,
@@ -1704,11 +1699,18 @@ app.post('/api/invoices/query', (req, res) => {
 
         return {
           txnId: String(txnId),
+          txnDate: item.txnDate || item.invoiceDate || null,
           paymentAmount: paymentAmount !== null && paymentAmount !== undefined
             ? Number(paymentAmount)
             : null
         };
       });
+
+      const normalizedTxnDate =
+        txnDate ||
+        invoiceDate ||
+        normalizedAppliedTo[0]?.txnDate ||
+        null;
 
       const derivedTotalAmount = normalizedAppliedTo.reduce((sum, item) => {
         return sum + (item.paymentAmount !== null && item.paymentAmount !== undefined ? Number(item.paymentAmount) : 0);
@@ -1738,7 +1740,7 @@ app.post('/api/invoices/query', (req, res) => {
             fullName: customerFullName || null
           },
           arAccount: normalizedArAccount,
-          txnDate: txnDate || null,
+          txnDate: normalizedTxnDate,
           refNumber: refNumber !== undefined ? refNumber : null,
           totalAmount: normalizedTotalAmount,
           paymentMethod: normalizedPaymentMethod,
@@ -1764,7 +1766,7 @@ app.post('/api/invoices/query', (req, res) => {
         payment: {
           customerId: customerId || null,
           customerFullName: customerFullName || null,
-          txnDate: txnDate || 'Today',
+          txnDate: normalizedTxnDate || 'Today',
           totalAmount: normalizedTotalAmount,
           appliedTo: normalizedAppliedTo.length
         },
