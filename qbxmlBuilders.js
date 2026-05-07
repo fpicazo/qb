@@ -295,7 +295,7 @@ function invoiceQuery({
   return wrapRq(inner);
 }
 
-function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shipTo, requestId }) {
+function invoiceAdd({ customer, arAccount, txnDate, refNumber, memo, lineItems, billTo, shipTo, requestId }) {
   if (!customer || (!customer.listId && !customer.fullName)) {
     throw new Error('Customer reference (listId or fullName) is required');
   }
@@ -316,6 +316,8 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
     custRef.ele('FullName').txt(customer.fullName);
   }
   
+  addRef(add, 'ARAccountRef', arAccount);
+
   // Add optional transaction date (format: YYYY-MM-DD)
   if (txnDate) {
     add.ele('TxnDate').txt(txnDate);
@@ -467,6 +469,7 @@ function invoiceMod({
   txnId,
   editSequence,
   customer,
+  arAccount,
   txnDate,
   refNumber,
   memo,
@@ -491,6 +494,7 @@ function invoiceMod({
   mod.ele('EditSequence').txt(editSequence);
 
   addRef(mod, 'CustomerRef', customer);
+  addRef(mod, 'ARAccountRef', arAccount);
 
   if (txnDate) {
     mod.ele('TxnDate').txt(txnDate);

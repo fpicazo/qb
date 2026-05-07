@@ -29,6 +29,33 @@ function setupRoutes(app) {
     return Array.isArray(value) ? value : [value];
   }
 
+  function normalizeItemSearchText(value) {
+    if (typeof value !== 'string') return value;
+    return value
+      .replace(/\u00A0/g, ' ')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function buildItemQueryCacheKey(payload) {
+    const normalizedFilter = payload?.nameFilter && typeof payload.nameFilter === 'object'
+      ? {
+          name: normalizeItemSearchText(payload.nameFilter.name || ''),
+          matchCriterion: payload.nameFilter.matchCriterion || 'StartsWith'
+        }
+      : null;
+
+    return JSON.stringify({
+      maxReturned: Number(payload?.maxReturned || 100),
+      autoTryExactContains: Boolean(payload?.autoTryExactContains),
+      searchTerm: normalizeItemSearchText(payload?.searchTerm || null),
+      searchPrimaryToken: normalizeItemSearchText(payload?.searchPrimaryToken || null),
+      name: normalizeItemSearchText(payload?.name || null),
+      nameFilter: normalizedFilter
+    });
+  }
+
   function collectItemQueryNodes(rs) {
     return [
       ['ItemServiceRet', toArray(rs.ItemServiceRet)],
@@ -316,6 +343,44 @@ function setupRoutes(app) {
 
     return normalized;
   }
+
+  function normalizeRefInput(value, fieldName) {
+    if (value === undefined || value === null || value === '') return null;
+
+    let ref = value;
+    if (typeof ref === 'string') {
+      const trimmed = ref.trim();
+      if (!trimmed) return null;
+
+      try {
+        ref = JSON.parse(trimmed);
+      } catch (error) {
+        return { fullName: trimmed };
+      }
+    }
+
+    if (!ref || typeof ref !== 'object' || Array.isArray(ref)) {
+      throw new Error(`${fieldName} must be a reference object or a string`);
+    }
+
+    const listId = ref.listId ?? ref.ListID ?? ref.listID ?? null;
+    const fullName = ref.fullName ?? ref.FullName ?? ref.name ?? ref.Name ?? null;
+
+    const normalized = {
+      listId: listId !== null && listId !== undefined && String(listId).trim() !== ''
+        ? String(listId).trim()
+        : null,
+      fullName: fullName !== null && fullName !== undefined && String(fullName).trim() !== ''
+        ? String(fullName).trim()
+        : null
+    };
+
+    if (!normalized.listId && !normalized.fullName) {
+      return null;
+    }
+
+    return normalized;
+  }
   
   // Home page - Web interface
   app.get('/', (req, res) => {
@@ -573,13 +638,7 @@ function setupRoutes(app) {
 app.post('/api/items/query', (req, res) => {
   try {
     const { maxReturned, name, nameFilter } = req.body || {};
-    const normalizedName = typeof name === 'string'
-      ? name
-          .replace(/\u00A0/g, ' ')
-          .replace(/[\u200B-\u200D\uFEFF]/g, '')
-          .replace(/\s+/g, ' ')
-          .trim()
-      : name;
+    const normalizedName = normalizeItemSearchText(name);
     
     // Build payload
     const payload = {
@@ -602,6 +661,54 @@ app.post('/api/items/query', (req, res) => {
     // Add pattern-based name filter if provided
     if (nameFilter) {
       payload.nameFilter = nameFilter;
+    }
+
+    const { _queue } = require('./queue');
+    const cacheKey = buildItemQueryCacheKey(payload);
+    const matchingJobs = _queue
+      .filter((job) => (
+        job.type === 'ItemQuery' &&
+        !job?.payload?.iteratorAction &&
+        !job?.payload?.iteratorId &&
+        !job?.payload?.exactCountMode &&
+        !job?.payload?.countSessionId &&
+        !job?.payload?.metaData &&
+        buildItemQueryCacheKey(job.payload || {}) === cacheKey
+      ))
+      .sort((a, b) => Number(b.id) - Number(a.id));
+
+    const existingDone = matchingJobs.find((job) => job.status === 'done' && job?.result?.raw);
+    if (existingDone) {
+      return parseItemQueryResponse(existingDone.result.raw)
+        .then((parsed) => {
+          res.json({
+            success: true,
+            source: 'cache',
+            jobId: existingDone.id,
+            message: 'Returning cached item query result',
+            filters: payload,
+            result: parsed
+          });
+        })
+        .catch((parseError) => {
+          res.status(500).json({
+            success: false,
+            error: parseError.message
+          });
+        });
+    }
+
+    const existingRunning = matchingJobs.find((job) => job.status === 'pending' || job.status === 'processing');
+    if (existingRunning) {
+      return res.status(202).json({
+        success: true,
+        source: 'in-progress',
+        jobId: existingRunning.id,
+        status: existingRunning.status,
+        message: 'An identical item query is already in progress.',
+        filters: payload,
+        instruction: `Check /api/queue?jobId=${existingRunning.id} after QBWC syncs`
+      });
     }
     
     // Queue the query job and get job object
@@ -1318,6 +1425,7 @@ app.post('/api/invoices/query', (req, res) => {
         editSequence,
         customerId,
         customerFullName,
+        arAccount,
         txnDate,
         refNumber,
         billTo,
@@ -1343,9 +1451,11 @@ app.post('/api/invoices/query', (req, res) => {
       const lineItems = normalizeInvoiceEditItems(items, nonTaxable);
       const normalizedBillTo = normalizeAddressInput(billTo, 'billTo');
       const normalizedShipTo = normalizeAddressInput(shipTo, 'shipTo');
+      const normalizedArAccount = normalizeRefInput(arAccount, 'arAccount');
       const hasHeaderChanges = Boolean(
         customerId ||
         customerFullName ||
+        normalizedArAccount ||
         txnDate ||
         refNumber !== undefined ||
         normalizedBillTo ||
@@ -1371,6 +1481,7 @@ app.post('/api/invoices/query', (req, res) => {
                 fullName: customerFullName || null
               }
             : null,
+          arAccount: normalizedArAccount,
           txnDate: txnDate || null,
           refNumber: refNumber !== undefined ? refNumber : null,
           memo: memo !== undefined ? memo : null,
@@ -1413,9 +1524,10 @@ app.post('/api/invoices/query', (req, res) => {
 
   app.post('/api/invoices', (req, res) => {
   try {
-    const { customerId, txnDate, items, billTo, shipTo, memo, nonTaxable } = req.body || {};
+    const { customerId, arAccount, txnDate, items, billTo, shipTo, memo, nonTaxable } = req.body || {};
     const normalizedBillTo = normalizeAddressInput(billTo, 'billTo');
     const normalizedShipTo = normalizeAddressInput(shipTo, 'shipTo');
+    const normalizedArAccount = normalizeRefInput(arAccount, 'arAccount');
     
     // Validation
     if (!customerId) {
@@ -1514,6 +1626,7 @@ app.post('/api/invoices/query', (req, res) => {
         customer: {
           listId: customerId
         },
+        arAccount: normalizedArAccount,
         txnDate: txnDate || null,
         refNumber: null,
         memo: memo || null,
