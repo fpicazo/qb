@@ -170,10 +170,19 @@ function itemInventoryAssemblyComponentsQuery({ itemId, requestId } = {}) {
   return wrapRq(inner);
 }
 
-function itemInventoryQuery({ listId, name, maxReturned = 100, requestId } = {}) {
-  const inner = create().ele('ItemInventoryQueryRq', {
-    requestID: resolveRequestId(requestId, 'item-inventory-query-1')
-  });
+// Note: ItemInventoryQueryRq only returns regular inventory items (ItemInventoryRet).
+// Assembly items (ItemInventoryAssembly) require a separate ItemInventoryAssemblyQueryRq,
+// so this query already filters out assemblies by design.
+function itemInventoryQuery({ listId, name, maxReturned = 100, iteratorAction, iteratorId, requestId } = {}) {
+  const attrs = { requestID: resolveRequestId(requestId, 'item-inventory-query-1') };
+  if (iteratorAction) {
+    attrs.iterator = iteratorAction;
+  }
+  if (iteratorId) {
+    attrs.iteratorID = iteratorId;
+  }
+
+  const inner = create().ele('ItemInventoryQueryRq', attrs);
 
   const normalizedName = normalizeLookupText(name);
 

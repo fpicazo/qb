@@ -154,29 +154,34 @@ function setupRoutes(app) {
   }
 
   function parseItemInventoryQueryResponse(rawXml) {
-    return new Promise((resolve, reject) => {
-      parseString(rawXml, { explicitArray: false }, (err, result) => {
-        if (err) return reject(err);
-
-        const rs = result?.QBXML?.QBXMLMsgsRs?.ItemInventoryQueryRs || {};
-        const items = toArray(rs.ItemInventoryRet).map((item) => {
-          const qtyOnHand = item.QuantityOnHand !== undefined ? Number(item.QuantityOnHand) : 0;
-          const qtyOnSalesOrder = item.QuantityOnSalesOrder !== undefined ? Number(item.QuantityOnSalesOrder) : 0;
-          const qtyOnOrder = item.QuantityOnOrder !== undefined ? Number(item.QuantityOnOrder) : 0;
-          return {
-            listId: item.ListID || null,
-            name: item.Name || null,
-            fullName: item.FullName || null,
-            isActive: item.IsActive !== undefined ? String(item.IsActive).toLowerCase() === 'true' : null,
-            quantityOnHand: qtyOnHand,
-            quantityOnOrder: qtyOnOrder,
-            quantityOnSalesOrder: qtyOnSalesOrder,
-            quantityAvailable: qtyOnHand - qtyOnSalesOrder
-          };
+    // rawXml may be a single string or an array of strings (multi-page iterator results)
+    const pages = Array.isArray(rawXml) ? rawXml : [rawXml];
+    return Promise.all(
+      pages.map((xml) => new Promise((resolve, reject) => {
+        parseString(xml, { explicitArray: false }, (err, result) => {
+          if (err) return reject(err);
+          const rs = result?.QBXML?.QBXMLMsgsRs?.ItemInventoryQueryRs || {};
+          const items = toArray(rs.ItemInventoryRet).map((item) => {
+            const qtyOnHand = item.QuantityOnHand !== undefined ? Number(item.QuantityOnHand) : 0;
+            const qtyOnSalesOrder = item.QuantityOnSalesOrder !== undefined ? Number(item.QuantityOnSalesOrder) : 0;
+            const qtyOnOrder = item.QuantityOnOrder !== undefined ? Number(item.QuantityOnOrder) : 0;
+            return {
+              listId: item.ListID || null,
+              name: item.Name || null,
+              fullName: item.FullName || null,
+              isActive: item.IsActive !== undefined ? String(item.IsActive).toLowerCase() === 'true' : null,
+              quantityOnHand: qtyOnHand,
+              quantityOnOrder: qtyOnOrder,
+              quantityOnSalesOrder: qtyOnSalesOrder,
+              quantityAvailable: qtyOnHand - qtyOnSalesOrder
+            };
+          });
+          resolve(items);
         });
-
-        resolve({ items, itemCount: items.length });
-      });
+      }))
+    ).then((allPages) => {
+      const items = allPages.flat();
+      return { items, itemCount: items.length };
     });
   }
 
@@ -1059,9 +1064,10 @@ app.get('/api/items/qty-available', async (req, res) => {
       })
       .sort((a, b) => Number(b.id) - Number(a.id));
 
-    const existingDone = matchingJobs.find((job) => job.status === 'done' && job?.result?.raw);
+    const existingDone = matchingJobs.find((job) => job.status === 'done' && (job?.result?.rawPages?.length || job?.result?.raw));
     if (existingDone) {
-      const parsed = await parseItemInventoryQueryResponse(existingDone.result.raw);
+      const rawInput = existingDone.result.rawPages || existingDone.result.raw;
+      const parsed = await parseItemInventoryQueryResponse(rawInput);
       return res.json({
         success: true,
         source: 'cache',
@@ -1083,7 +1089,12 @@ app.get('/api/items/qty-available', async (req, res) => {
 
     const payload = {};
     if (listId) payload.listId = listId;
-    if (name) payload.name = name;
+    else if (name) payload.name = name;
+    else {
+      // Bulk query: auto-paginate up to 250 items across QBWC sync cycles
+      payload.targetCount = 250;
+      payload.iteratorAction = 'Start';
+    }
 
     const queued = queueJobWithConnectionGuard({
       type: 'ItemInventoryQuery',

@@ -83,6 +83,23 @@ function parseItemQueryPageStats(xmlResponse) {
   };
 }
 
+function parseItemInventoryQueryPageStats(xmlResponse) {
+  const xml = xmlResponse || '';
+  const totalItems = (xml.match(/<ItemInventoryRet\b/g) || []).length;
+  const rsTagMatch = xml.match(/<ItemInventoryQueryRs\b([^>]*)>/);
+  const attrsText = rsTagMatch ? rsTagMatch[1] : '';
+  const iteratorIdMatch = attrsText.match(/\biteratorID="([^"]+)"/);
+  const remainingCountMatch = attrsText.match(/\biteratorRemainingCount="([^"]+)"/);
+  const iteratorRemainingCount = remainingCountMatch ? Number(remainingCountMatch[1]) : 0;
+
+  return {
+    totalItems,
+    iteratorId: iteratorIdMatch ? iteratorIdMatch[1] : null,
+    iteratorRemainingCount,
+    hasMore: iteratorRemainingCount > 0
+  };
+}
+
 function normalizeLookupText(value) {
   if (value === null || value === undefined) return value;
   return String(value)
@@ -261,11 +278,14 @@ const service = {
               listId: job.payload.listId,
               name: job.payload.name,
               maxReturned: job.payload.maxReturned || 100,
+              iteratorAction: job.payload.iteratorAction,
+              iteratorId: job.payload.iteratorId,
               requestId: job.id
             });
             console.log('ItemInventoryQuery XML generated');
             if (job.payload.listId) console.log('   ListID:', job.payload.listId);
             if (job.payload.name) console.log('   Name:', job.payload.name);
+            if (job.payload.iteratorAction) console.log('   Iterator:', job.payload.iteratorAction);
           }
           else if (job.type === 'ItemAdd') {
             qbxml = itemAdd({
@@ -508,6 +528,24 @@ const service = {
                         nonGroupItems: runningNonGroupItems,
                         pagesProcessed: lastJob.payload.pagesProcessed
                       });
+                    }
+                  } else if (lastJob.type === 'ItemInventoryQuery' && lastJob.payload?.targetCount) {
+                    const pageStats = parseItemInventoryQueryPageStats(args.response);
+                    const targetCount = Number(lastJob.payload.targetCount);
+                    const rawPages = Array.isArray(lastJob.result?.rawPages)
+                      ? [...lastJob.result.rawPages, args.response]
+                      : [args.response];
+                    const accumulatedCount = Number(lastJob.payload.accumulatedCount || 0) + pageStats.totalItems;
+
+                    if (pageStats.hasMore && accumulatedCount < targetCount && pageStats.iteratorId) {
+                      lastJob.payload.iteratorAction = 'Continue';
+                      lastJob.payload.iteratorId = pageStats.iteratorId;
+                      lastJob.payload.accumulatedCount = accumulatedCount;
+                      lastJob.status = 'pending';
+                      lastJob.result = { rawPages, accumulatedCount };
+                      console.log(`ItemInventoryQuery continuing - accumulated: ${accumulatedCount}, remaining: ${pageStats.iteratorRemainingCount}`);
+                    } else {
+                      markDone(lastJob.id, { rawPages, raw: args.response, accumulatedCount });
                     }
                   } else {
                     markDone(lastJob.id, { raw: args.response });
