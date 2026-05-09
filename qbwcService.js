@@ -277,7 +277,7 @@ const service = {
             qbxml = itemInventoryQuery({
               listId: job.payload.listId,
               name: job.payload.name,
-              maxReturned: job.payload.maxReturned || 100,
+              maxReturned: job.payload.maxReturned || 200,
               iteratorAction: job.payload.iteratorAction,
               iteratorId: job.payload.iteratorId,
               requestId: job.id

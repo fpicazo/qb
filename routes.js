@@ -1091,8 +1091,9 @@ app.get('/api/items/qty-available', async (req, res) => {
     if (listId) payload.listId = listId;
     else if (name) payload.name = name;
     else {
-      // Bulk query: auto-paginate up to 250 items across QBWC sync cycles
-      payload.targetCount = 250;
+      // Bulk query: 200 items per page, auto-paginate up to 800 items (4 pages) across QBWC sync cycles
+      payload.maxReturned = 200;
+      payload.targetCount = 800;
       payload.iteratorAction = 'Start';
     }
 
