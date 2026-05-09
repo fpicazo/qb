@@ -153,6 +153,33 @@ function setupRoutes(app) {
     });
   }
 
+  function parseItemInventoryQueryResponse(rawXml) {
+    return new Promise((resolve, reject) => {
+      parseString(rawXml, { explicitArray: false }, (err, result) => {
+        if (err) return reject(err);
+
+        const rs = result?.QBXML?.QBXMLMsgsRs?.ItemInventoryQueryRs || {};
+        const items = toArray(rs.ItemInventoryRet).map((item) => {
+          const qtyOnHand = item.QuantityOnHand !== undefined ? Number(item.QuantityOnHand) : 0;
+          const qtyOnSalesOrder = item.QuantityOnSalesOrder !== undefined ? Number(item.QuantityOnSalesOrder) : 0;
+          const qtyOnOrder = item.QuantityOnOrder !== undefined ? Number(item.QuantityOnOrder) : 0;
+          return {
+            listId: item.ListID || null,
+            name: item.Name || null,
+            fullName: item.FullName || null,
+            isActive: item.IsActive !== undefined ? String(item.IsActive).toLowerCase() === 'true' : null,
+            quantityOnHand: qtyOnHand,
+            quantityOnOrder: qtyOnOrder,
+            quantityOnSalesOrder: qtyOnSalesOrder,
+            quantityAvailable: qtyOnHand - qtyOnSalesOrder
+          };
+        });
+
+        resolve({ items, itemCount: items.length });
+      });
+    });
+  }
+
   function parseItemQueryResponse(rawXml) {
     return new Promise((resolve, reject) => {
       parseString(rawXml, { explicitArray: false }, (err, result) => {
@@ -1006,6 +1033,79 @@ app.get('/api/items/assembly-components/:itemId', async (req, res) => {
       status: job.status,
       message: 'Inventory assembly components query job queued.',
       instruction: `Re-call GET /api/items/assembly-components/${encodeURIComponent(itemId)} after QBWC syncs, or check /api/queue with jobId: ${job.id}`
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/items/qty-available
+// Optional query params: ?listId=<QB ListID>  or  ?name=<FullName>
+// Without params, fetches all active inventory items with their quantities.
+app.get('/api/items/qty-available', async (req, res) => {
+  try {
+    const listId = req.query?.listId ? String(req.query.listId) : null;
+    const name = req.query?.name ? String(req.query.name) : null;
+    const cacheKey = listId || name || '__all__';
+
+    const { _queue } = require('./queue');
+
+    const matchingJobs = _queue
+      .filter((job) => {
+        if (job.type !== 'ItemInventoryQuery') return false;
+        if (listId) return String(job?.payload?.listId || '') === listId;
+        if (name) return String(job?.payload?.name || '') === name;
+        return !job?.payload?.listId && !job?.payload?.name;
+      })
+      .sort((a, b) => Number(b.id) - Number(a.id));
+
+    const existingDone = matchingJobs.find((job) => job.status === 'done' && job?.result?.raw);
+    if (existingDone) {
+      const parsed = await parseItemInventoryQueryResponse(existingDone.result.raw);
+      return res.json({
+        success: true,
+        source: 'cache',
+        jobId: existingDone.id,
+        ...parsed
+      });
+    }
+
+    const existingRunning = matchingJobs.find((job) => job.status === 'pending' || job.status === 'processing');
+    if (existingRunning) {
+      return res.status(202).json({
+        success: true,
+        jobId: existingRunning.id,
+        status: existingRunning.status,
+        message: 'An inventory quantity query is already in progress.',
+        instruction: `Check /api/queue with jobId: ${existingRunning.id}`
+      });
+    }
+
+    const payload = {};
+    if (listId) payload.listId = listId;
+    if (name) payload.name = name;
+
+    const queued = queueJobWithConnectionGuard({
+      type: 'ItemInventoryQuery',
+      payload
+    });
+
+    if (!queued.accepted) {
+      return res.status(503).json({
+        success: false,
+        error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+        quickbooks: queued.connection
+      });
+    }
+
+    const job = queued.queuedJob;
+    const callbackUrl = `/api/items/qty-available${listId ? `?listId=${encodeURIComponent(listId)}` : name ? `?name=${encodeURIComponent(name)}` : ''}`;
+    return res.status(202).json({
+      success: true,
+      jobId: job.id,
+      status: job.status,
+      message: 'Inventory quantity query queued.',
+      instruction: `Re-call GET ${callbackUrl} after QBWC syncs, or check /api/queue with jobId: ${job.id}`
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });

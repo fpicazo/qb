@@ -170,6 +170,34 @@ function itemInventoryAssemblyComponentsQuery({ itemId, requestId } = {}) {
   return wrapRq(inner);
 }
 
+function itemInventoryQuery({ listId, name, maxReturned = 100, requestId } = {}) {
+  const inner = create().ele('ItemInventoryQueryRq', {
+    requestID: resolveRequestId(requestId, 'item-inventory-query-1')
+  });
+
+  const normalizedName = normalizeLookupText(name);
+
+  if (listId) {
+    inner.ele('ListID').txt(String(listId));
+  } else if (normalizedName) {
+    inner.ele('FullName').txt(normalizedName);
+  } else {
+    inner.ele('MaxReturned').txt(String(maxReturned));
+    inner.ele('ActiveStatus').txt('All');
+  }
+
+  inner.ele('IncludeRetElement').txt('ListID');
+  inner.ele('IncludeRetElement').txt('Name');
+  inner.ele('IncludeRetElement').txt('FullName');
+  inner.ele('IncludeRetElement').txt('IsActive');
+  inner.ele('IncludeRetElement').txt('QuantityOnHand');
+  inner.ele('IncludeRetElement').txt('QuantityOnOrder');
+  inner.ele('IncludeRetElement').txt('QuantityOnSalesOrder');
+
+  inner.up();
+  return wrapRq(inner);
+}
+
 function itemAdd({ type = 'Service', name, description, price, account, requestId }) {
   if (!name) throw new Error('Item name is required');
   
@@ -613,12 +641,11 @@ module.exports = {
   itemGroupQuery,
   itemGroupProductsQuery,
   itemInventoryAssemblyComponentsQuery,
+  itemInventoryQuery,
   itemAdd,
   customerAdd,
   invoiceQuery,
   invoiceAdd,
   invoiceMod,
   receivePaymentAdd
-  
-
 };
