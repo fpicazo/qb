@@ -192,7 +192,7 @@ function itemInventoryQuery({ listId, name, maxReturned = 100, iteratorAction, i
     inner.ele('FullName').txt(normalizedName);
   } else {
     inner.ele('MaxReturned').txt(String(maxReturned));
-    inner.ele('ActiveStatus').txt('All');
+    inner.ele('ActiveStatus').txt('ActiveOnly');
   }
 
   inner.ele('IncludeRetElement').txt('ListID');
