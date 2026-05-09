@@ -1072,6 +1072,7 @@ app.get('/api/items/qty-available', async (req, res) => {
         success: true,
         source: 'cache',
         jobId: existingDone.id,
+        accumulatedCount: existingDone.result.accumulatedCount ?? parsed.itemCount,
         ...parsed
       });
     }

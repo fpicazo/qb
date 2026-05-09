@@ -545,6 +545,7 @@ const service = {
                       lastJob.result = { rawPages, accumulatedCount };
                       console.log(`ItemInventoryQuery continuing - accumulated: ${accumulatedCount}, remaining: ${pageStats.iteratorRemainingCount}`);
                     } else {
+                      lastJob.payload.accumulatedCount = accumulatedCount;
                       markDone(lastJob.id, { rawPages, raw: args.response, accumulatedCount });
                     }
                   } else {
