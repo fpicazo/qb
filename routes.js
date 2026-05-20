@@ -1047,46 +1047,11 @@ app.get('/api/items/assembly-components/:itemId', async (req, res) => {
 // GET /api/items/qty-available
 // Optional query params: ?listId=<QB ListID>  or  ?name=<FullName>
 // Without params, fetches all active inventory items with their quantities.
+// Always queues a fresh job and returns the jobId. Poll /api/queue?jobId=<id> for results.
 app.get('/api/items/qty-available', async (req, res) => {
   try {
     const listId = req.query?.listId ? String(req.query.listId) : null;
     const name = req.query?.name ? String(req.query.name) : null;
-    const cacheKey = listId || name || '__all__';
-
-    const { _queue } = require('./queue');
-
-    const matchingJobs = _queue
-      .filter((job) => {
-        if (job.type !== 'ItemInventoryQuery') return false;
-        if (listId) return String(job?.payload?.listId || '') === listId;
-        if (name) return String(job?.payload?.name || '') === name;
-        return !job?.payload?.listId && !job?.payload?.name;
-      })
-      .sort((a, b) => Number(b.id) - Number(a.id));
-
-    const existingDone = matchingJobs.find((job) => job.status === 'done' && (job?.result?.rawPages?.length || job?.result?.raw));
-    if (existingDone) {
-      const rawInput = existingDone.result.rawPages || existingDone.result.raw;
-      const parsed = await parseItemInventoryQueryResponse(rawInput);
-      return res.json({
-        success: true,
-        source: 'cache',
-        jobId: existingDone.id,
-        accumulatedCount: existingDone.result.accumulatedCount ?? parsed.itemCount,
-        ...parsed
-      });
-    }
-
-    const existingRunning = matchingJobs.find((job) => job.status === 'pending' || job.status === 'processing');
-    if (existingRunning) {
-      return res.status(202).json({
-        success: true,
-        jobId: existingRunning.id,
-        status: existingRunning.status,
-        message: 'An inventory quantity query is already in progress.',
-        instruction: `Check /api/queue with jobId: ${existingRunning.id}`
-      });
-    }
 
     const payload = {};
     if (listId) payload.listId = listId;
@@ -1112,13 +1077,12 @@ app.get('/api/items/qty-available', async (req, res) => {
     }
 
     const job = queued.queuedJob;
-    const callbackUrl = `/api/items/qty-available${listId ? `?listId=${encodeURIComponent(listId)}` : name ? `?name=${encodeURIComponent(name)}` : ''}`;
     return res.status(202).json({
       success: true,
       jobId: job.id,
       status: job.status,
       message: 'Inventory quantity query queued.',
-      instruction: `Re-call GET ${callbackUrl} after QBWC syncs, or check /api/queue with jobId: ${job.id}`
+      instruction: `Check /api/queue?jobId=${job.id} for results after QBWC syncs.`
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
