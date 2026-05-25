@@ -1092,12 +1092,21 @@ app.get('/api/items/assembly-components/:itemId', async (req, res) => {
         }
 
         // <DataRow> elements — actual transaction lines
+        // Each DataRow may contain a <RowData> child (item label) plus <ColData> elements
         const rows = toArray(reportData.DataRow || []).map((row) => ({
           rowNumber: row?.$ ? row.$.rowNumber : null,
+          itemLabel: row?.RowData?.$ ? (row.RowData.$.value || null) : null,
           data: mapColData(row?.ColData)
         }));
 
-        // <TotalRow> elements — subtotals and grand total
+        // <SubtotalRow> elements — per-item and per-category subtotals
+        const subtotals = toArray(reportData.SubtotalRow || []).map((row) => ({
+          rowNumber: row?.$ ? row.$.rowNumber : null,
+          itemLabel: row?.RowData?.$ ? (row.RowData.$.value || null) : null,
+          data: mapColData(row?.ColData)
+        }));
+
+        // <TotalRow> elements — grand total
         const totals = toArray(reportData.TotalRow || []).map((row) => ({
           rowNumber: row?.$ ? row.$.rowNumber : null,
           data: mapColData(row?.ColData)
@@ -1116,6 +1125,7 @@ app.get('/api/items/assembly-components/:itemId', async (req, res) => {
             .filter((c) => c.title),
           rows,
           rowCount: rows.length,
+          subtotals,
           totals,
           status: {
             code: attrs.statusCode || null,
@@ -1179,44 +1189,6 @@ app.get('/api/items/sales-report', async (req, res) => {
     }
     if (!dateStart || !dateEnd) {
       return res.status(400).json({ error: 'dateStart and dateEnd are required (YYYY-MM-DD)' });
-    }
-
-    const { _queue } = require('./queue');
-
-    // Return cached result for identical parameters
-    const sameJobs = _queue
-      .filter((job) => (
-        job.type === 'ItemSalesDetailReportQuery' &&
-        String(job?.payload?.listId) === listId &&
-        job?.payload?.dateStart === dateStart &&
-        job?.payload?.dateEnd === dateEnd
-      ))
-      .sort((a, b) => Number(b.id) - Number(a.id));
-
-    const existingDone = sameJobs.find((job) => job.status === 'done' && job?.result?.raw);
-    if (existingDone) {
-      const parsed = await parseItemSalesDetailReportResponse(existingDone.result.raw);
-      return res.json({
-        success: true,
-        source: 'cache',
-        jobId: existingDone.id,
-        listId,
-        dateStart,
-        dateEnd,
-        ...parsed
-      });
-    }
-
-    const existingRunning = sameJobs.find((job) => job.status === 'pending' || job.status === 'processing');
-    if (existingRunning) {
-      return res.status(202).json({
-        success: true,
-        source: 'in-progress',
-        jobId: existingRunning.id,
-        status: existingRunning.status,
-        message: 'An identical sales report query is already in progress.',
-        instruction: `Check /api/queue?jobId=${existingRunning.id} after QBWC syncs`
-      });
     }
 
     const queued2 = queueJobWithConnectionGuard({
