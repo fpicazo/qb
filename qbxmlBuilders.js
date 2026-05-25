@@ -644,6 +644,31 @@ function receivePaymentAdd({
 
 
 
+function itemSalesDetailReport({ listId, dateStart, dateEnd, requestId } = {}) {
+  if (!listId) {
+    throw new Error('listId is required');
+  }
+  if (!dateStart || !dateEnd) {
+    throw new Error('dateStart and dateEnd are required');
+  }
+
+  const inner = create().ele('GeneralDetailReportQueryRq', {
+    requestID: resolveRequestId(requestId, 'item-sales-report-1')
+  });
+
+  inner.ele('GeneralDetailReportType').txt('ItemSalesDetail');
+
+  const period = inner.ele('ReportPeriod');
+  period.ele('FromReportDate').txt(String(dateStart));
+  period.ele('ToReportDate').txt(String(dateEnd));
+
+  inner.ele('ReportItemFilter')
+    .ele('ListID').txt(String(listId));
+
+  inner.up();
+  return wrapRq(inner);
+}
+
 module.exports = { 
   customerQuery,
   itemQuery,
@@ -656,5 +681,6 @@ module.exports = {
   invoiceQuery,
   invoiceAdd,
   invoiceMod,
-  receivePaymentAdd
+  receivePaymentAdd,
+  itemSalesDetailReport
 };

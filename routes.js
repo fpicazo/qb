@@ -1048,6 +1048,60 @@ app.get('/api/items/assembly-components/:itemId', async (req, res) => {
 // Optional query params: ?listId=<QB ListID>  or  ?name=<FullName>
 // Without params, fetches all active inventory items with their quantities.
 // Always queues a fresh job and returns the jobId. Poll /api/queue?jobId=<id> for results.
+  function parseItemSalesDetailReportResponse(rawXml) {
+    return new Promise((resolve, reject) => {
+      parseString(rawXml, { explicitArray: false }, (err, result) => {
+        if (err) return reject(err);
+
+        const rs = result?.QBXML?.QBXMLMsgsRs?.GeneralDetailReportQueryRs || {};
+        const attrs = rs?.$ || {};
+        const reportData = rs?.ReportData || {};
+
+        // Build column map from ColDesc
+        const colDescs = toArray(reportData.ColDesc || []);
+        const colMap = {};
+        colDescs.forEach((col) => {
+          const colId = col?.$ ? col.$.colID : null;
+          if (colId) {
+            colMap[String(colId)] = {
+              title: col?.ColTitle || null,
+              type: col?.ColType || null
+            };
+          }
+        });
+
+        // Parse data rows — handle both DataRow and DataRow > RowData structures
+        const rawRows = toArray(reportData.DataRow || []);
+        const rows = rawRows.flatMap((row) => {
+          const rowsToProcess = row?.RowData ? toArray(row.RowData) : [row];
+          return rowsToProcess.map((r) => {
+            const rowAttrs = r?.$ || {};
+            const colDataItems = toArray(r?.ColData || []);
+            const rowData = {};
+            colDataItems.forEach((col) => {
+              const colId = col?.$ ? col.$.colID : null;
+              const value = col?.$ ? (col.$.value !== undefined ? col.$.value : null) : null;
+              if (colId && colMap[colId]) {
+                rowData[colMap[colId].title] = value;
+              }
+            });
+            return { rowType: rowAttrs.rowType || null, data: rowData };
+          });
+        });
+
+        resolve({
+          columns: colDescs.map((col) => col?.ColTitle || null).filter(Boolean),
+          rows,
+          rowCount: rows.length,
+          status: {
+            code: attrs.statusCode || null,
+            severity: attrs.statusSeverity || null,
+            message: attrs.statusMessage || null
+          }
+        });
+      });
+    });
+  }
 app.get('/api/items/qty-available', async (req, res) => {
   try {
     const listId = req.query?.listId ? String(req.query.listId) : null;
@@ -1089,7 +1143,88 @@ app.get('/api/items/qty-available', async (req, res) => {
   }
 });
 
-app.post('/api/items', (req, res) => {
+// GET /api/items/sales-report?listId=<QB ListID>&dateStart=YYYY-MM-DD&dateEnd=YYYY-MM-DD
+app.get('/api/items/sales-report', async (req, res) => {
+  try {
+    const listId = req.query?.listId ? String(req.query.listId) : null;
+    const dateStart = req.query?.dateStart ? String(req.query.dateStart) : null;
+    const dateEnd = req.query?.dateEnd ? String(req.query.dateEnd) : null;
+
+    if (!listId) {
+      return res.status(400).json({ error: 'listId is required' });
+    }
+    if (!dateStart || !dateEnd) {
+      return res.status(400).json({ error: 'dateStart and dateEnd are required (YYYY-MM-DD)' });
+    }
+
+    const { _queue } = require('./queue');
+
+    // Return cached result for identical parameters
+    const sameJobs = _queue
+      .filter((job) => (
+        job.type === 'ItemSalesDetailReportQuery' &&
+        String(job?.payload?.listId) === listId &&
+        job?.payload?.dateStart === dateStart &&
+        job?.payload?.dateEnd === dateEnd
+      ))
+      .sort((a, b) => Number(b.id) - Number(a.id));
+
+    const existingDone = sameJobs.find((job) => job.status === 'done' && job?.result?.raw);
+    if (existingDone) {
+      const parsed = await parseItemSalesDetailReportResponse(existingDone.result.raw);
+      return res.json({
+        success: true,
+        source: 'cache',
+        jobId: existingDone.id,
+        listId,
+        dateStart,
+        dateEnd,
+        ...parsed
+      });
+    }
+
+    const existingRunning = sameJobs.find((job) => job.status === 'pending' || job.status === 'processing');
+    if (existingRunning) {
+      return res.status(202).json({
+        success: true,
+        source: 'in-progress',
+        jobId: existingRunning.id,
+        status: existingRunning.status,
+        message: 'An identical sales report query is already in progress.',
+        instruction: `Check /api/queue?jobId=${existingRunning.id} after QBWC syncs`
+      });
+    }
+
+    const queued2 = queueJobWithConnectionGuard({
+      type: 'ItemSalesDetailReportQuery',
+      payload: { listId, dateStart, dateEnd }
+    });
+
+    if (!queued2.accepted) {
+      return res.status(503).json({
+        success: false,
+        error: `QuickBooks has been offline for more than ${queued2.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+        quickbooks: queued2.connection
+      });
+    }
+
+    const reportJob = queued2.queuedJob;
+    return res.status(202).json({
+      success: true,
+      jobId: reportJob.id,
+      status: reportJob.status,
+      message: 'Item sales detail report queued.',
+      listId,
+      dateStart,
+      dateEnd,
+      instruction: `Re-call GET /api/items/sales-report?listId=${encodeURIComponent(listId)}&dateStart=${dateStart}&dateEnd=${dateEnd} after QBWC syncs, or check /api/queue?jobId=${reportJob.id}`
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+  app.post('/api/items', (req, res) => {
   try {
     const { type, name, description, price, account } = req.body;
     
@@ -1901,6 +2036,26 @@ app.post('/api/invoices/query', (req, res) => {
               result: {
                 ...job.result,
                 parsed: await parseItemQueryResponse(job.result.raw)
+              }
+            };
+          } catch (parseError) {
+            return {
+              ...job,
+              result: {
+                ...job.result,
+                parseError: parseError.message
+              }
+            };
+          }
+        }
+
+        if (job?.type === 'ItemSalesDetailReportQuery' && job?.status === 'done' && job?.result?.raw) {
+          try {
+            return {
+              ...job,
+              result: {
+                ...job.result,
+                parsed: await parseItemSalesDetailReportResponse(job.result.raw)
               }
             };
           } catch (parseError) {

@@ -12,7 +12,8 @@ const {
   invoiceQuery,
   invoiceAdd,
   invoiceMod,
-  receivePaymentAdd
+  receivePaymentAdd,
+  itemSalesDetailReport
 } = require('./qbxmlBuilders');
 const { getNextPending, markDone, markError, _queue } = require('./queue');
 const config = require('./config');
@@ -348,6 +349,16 @@ const service = {
             console.log('ðŸ“ InvoiceMod XML generated');
             console.log('   TxnID:', job.payload.txnId);
             console.log('   Line Items:', job.payload.lineItems?.length || 0);
+          } else if (job.type === 'ItemSalesDetailReportQuery') {
+            qbxml = itemSalesDetailReport({
+              listId: job.payload.listId,
+              dateStart: job.payload.dateStart,
+              dateEnd: job.payload.dateEnd,
+              requestId: job.id
+            });
+            console.log('ItemSalesDetailReportQuery XML generated');
+            console.log('   ListID:', job.payload.listId);
+            console.log('   Date range:', job.payload.dateStart, '-', job.payload.dateEnd);
           } else if (job.type === 'ReceivePaymentAdd') {
             qbxml = receivePaymentAdd({
               customer: job.payload.customer,
