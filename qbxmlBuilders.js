@@ -656,7 +656,7 @@ function itemSalesDetailReport({ listId, dateStart, dateEnd, requestId } = {}) {
     requestID: resolveRequestId(requestId, 'item-sales-report-1')
   });
 
-  inner.ele('GeneralDetailReportType').txt('ItemSalesDetail');
+  inner.ele('GeneralDetailReportType').txt('SalesByItemDetail');
 
   const period = inner.ele('ReportPeriod');
   period.ele('FromReportDate').txt(String(dateStart));
