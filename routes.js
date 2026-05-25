@@ -1055,44 +1055,68 @@ app.get('/api/items/assembly-components/:itemId', async (req, res) => {
 
         const rs = result?.QBXML?.QBXMLMsgsRs?.GeneralDetailReportQueryRs || {};
         const attrs = rs?.$ || {};
-        const reportData = rs?.ReportData || {};
+        // Actual response wraps everything inside <ReportRet>
+        const reportRet = rs?.ReportRet || {};
+        const reportData = reportRet?.ReportData || {};
 
-        // Build column map from ColDesc
-        const colDescs = toArray(reportData.ColDesc || []);
+        // ColDesc elements live at the ReportRet level.
+        // Each ColTitle title is in the `value` attribute: <ColTitle titleRow="1" value="Type" />
+        const colDescs = toArray(reportRet.ColDesc || []);
         const colMap = {};
         colDescs.forEach((col) => {
           const colId = col?.$ ? col.$.colID : null;
+          const title = col?.ColTitle?.$ ? (col.ColTitle.$.value || null) : null;
           if (colId) {
             colMap[String(colId)] = {
-              title: col?.ColTitle || null,
-              type: col?.ColType || null
+              title,
+              type: col?.ColType || null,
+              dataType: col?.$ ? col.$.dataType : null
             };
           }
         });
 
-        // Parse data rows — handle both DataRow and DataRow > RowData structures
-        const rawRows = toArray(reportData.DataRow || []);
-        const rows = rawRows.flatMap((row) => {
-          const rowsToProcess = row?.RowData ? toArray(row.RowData) : [row];
-          return rowsToProcess.map((r) => {
-            const rowAttrs = r?.$ || {};
-            const colDataItems = toArray(r?.ColData || []);
-            const rowData = {};
-            colDataItems.forEach((col) => {
-              const colId = col?.$ ? col.$.colID : null;
-              const value = col?.$ ? (col.$.value !== undefined ? col.$.value : null) : null;
-              if (colId && colMap[colId]) {
-                rowData[colMap[colId].title] = value;
-              }
-            });
-            return { rowType: rowAttrs.rowType || null, data: rowData };
+        function mapColData(colDataItems) {
+          const out = {};
+          toArray(colDataItems || []).forEach((col) => {
+            const colId = col?.$ ? col.$.colID : null;
+            const value = col?.$ ? (col.$.value !== undefined ? col.$.value : null) : null;
+            if (colId && colMap[colId]) {
+              const key = colMap[colId].title || `col${colId}`;
+              out[key] = value;
+            } else if (colId) {
+              // Blank/unnamed columns (e.g. colID=1 which is the label column)
+              out[`col${colId}`] = value;
+            }
           });
-        });
+          return out;
+        }
+
+        // <DataRow> elements — actual transaction lines
+        const rows = toArray(reportData.DataRow || []).map((row) => ({
+          rowNumber: row?.$ ? row.$.rowNumber : null,
+          data: mapColData(row?.ColData)
+        }));
+
+        // <TotalRow> elements — subtotals and grand total
+        const totals = toArray(reportData.TotalRow || []).map((row) => ({
+          rowNumber: row?.$ ? row.$.rowNumber : null,
+          data: mapColData(row?.ColData)
+        }));
 
         resolve({
-          columns: colDescs.map((col) => col?.ColTitle || null).filter(Boolean),
+          title: reportRet.ReportTitle || null,
+          subtitle: reportRet.ReportSubtitle || null,
+          basis: reportRet.ReportBasis || null,
+          columns: colDescs
+            .map((col) => ({
+              colId: col?.$ ? col.$.colID : null,
+              title: col?.ColTitle?.$ ? (col.ColTitle.$.value || null) : null,
+              type: col?.ColType || null
+            }))
+            .filter((c) => c.title),
           rows,
           rowCount: rows.length,
+          totals,
           status: {
             code: attrs.statusCode || null,
             severity: attrs.statusSeverity || null,
