@@ -370,72 +370,11 @@ function invoiceAdd({ customer, txnDate, refNumber, memo, lineItems, billTo, shi
   if (memo) {
     add.ele('Memo').txt(memo);
   }
-
   
+
   // Add line items
   lineItems.forEach((line, index) => {
-    if (!line.item || (!line.item.listId && !line.item.fullName)) {
-      throw new Error(`Line item ${index + 1}: item reference (listId or fullName) is required`);
-    }
-    
-    if (line.quantity === undefined || line.quantity === null) {
-      throw new Error(`Line item ${index + 1}: quantity is required`);
-    }
-    
-    if (line.amount === undefined && (line.rate === undefined || line.rate === null)) {
-      throw new Error(`Line item ${index + 1}: rate or amount is required`);
-    }
-    
-    const lineAdd = add.ele('InvoiceLineAdd');
-    
-    // Add item reference
-    const itemRef = lineAdd.ele('ItemRef');
-    if (line.item.listId) {
-      itemRef.ele('ListID').txt(line.item.listId);
-    } else {
-      itemRef.ele('FullName').txt(line.item.fullName);
-    }
-    
-    // Add description (optional)
-    if (line.description) {
-      lineAdd.ele('Desc').txt(line.description);
-    }
-    
-    // Add quantity
-    lineAdd.ele('Quantity').txt(String(line.quantity));
-    
-    // Add rate or amount (ensure proper decimal formatting for QB)
-    if (line.amount !== undefined) {
-      // Format amount with 2 decimal places
-      lineAdd.ele('Amount').txt(Number(line.amount).toFixed(2));
-    } else {
-      // Format rate with 2 decimal places
-      lineAdd.ele('Rate').txt(Number(line.rate).toFixed(2));
-    }
-
-    // Optional line-level sales tax code
-    // - line.salesTaxCode / line.taxCode: string or { listId/fullName }
-    // - line.taxable false-like values default to QuickBooks "Non"
-    const rawSalesTaxCode = line.salesTaxCode ?? line.taxCode ?? null;
-    const normalizedSalesTaxCode = typeof rawSalesTaxCode === 'string'
-      ? { fullName: rawSalesTaxCode.trim() }
-      : rawSalesTaxCode;
-    const isNonTaxable =
-      line.taxable === false ||
-      line.taxable === 'false' ||
-      line.taxable === 0 ||
-      line.taxable === '0';
-
-    if (normalizedSalesTaxCode && (normalizedSalesTaxCode.listId || normalizedSalesTaxCode.fullName)) {
-      const taxCodeRef = lineAdd.ele('SalesTaxCodeRef');
-      if (normalizedSalesTaxCode.listId) {
-        taxCodeRef.ele('ListID').txt(normalizedSalesTaxCode.listId);
-      } else {
-        taxCodeRef.ele('FullName').txt(normalizedSalesTaxCode.fullName);
-      }
-    } else if (isNonTaxable) {
-      lineAdd.ele('SalesTaxCodeRef').ele('FullName').txt('Non');
-    }
+    addSalesItemLine(add, 'InvoiceLineAdd', line, index);
   });
 
   return wrapRq(root);
@@ -498,6 +437,38 @@ function addLineTaxCode(parent, line) {
   } else if (isNonTaxable) {
     parent.ele('SalesTaxCodeRef').ele('FullName').txt('Non');
   }
+}
+
+function addSalesItemLine(parent, lineElementName, line, index) {
+  if (!line.item || (!line.item.listId && !line.item.fullName)) {
+    throw new Error(`Line item ${index + 1}: item reference (listId or fullName) is required`);
+  }
+
+  if (line.quantity === undefined || line.quantity === null) {
+    throw new Error(`Line item ${index + 1}: quantity is required`);
+  }
+
+  if (line.amount === undefined && (line.rate === undefined || line.rate === null)) {
+    throw new Error(`Line item ${index + 1}: rate or amount is required`);
+  }
+
+  const lineAdd = parent.ele(lineElementName);
+
+  addRef(lineAdd, 'ItemRef', line.item);
+
+  if (line.description) {
+    lineAdd.ele('Desc').txt(line.description);
+  }
+
+  lineAdd.ele('Quantity').txt(String(line.quantity));
+
+  if (line.amount !== undefined) {
+    lineAdd.ele('Amount').txt(Number(line.amount).toFixed(2));
+  } else {
+    lineAdd.ele('Rate').txt(Number(line.rate).toFixed(2));
+  }
+
+  addLineTaxCode(lineAdd, line);
 }
 
 function invoiceMod({
@@ -640,6 +611,58 @@ function receivePaymentAdd({
   return wrapRq(root);
 }
 
+function salesReceiptAdd({
+  customer,
+  txnDate,
+  refNumber,
+  memo,
+  lineItems,
+  billTo,
+  shipTo,
+  paymentMethod,
+  depositToAccount,
+  requestId
+}) {
+  if (!customer || (!customer.listId && !customer.fullName)) {
+    throw new Error('Customer reference (listId or fullName) is required');
+  }
+
+  if (!lineItems || !Array.isArray(lineItems) || lineItems.length === 0) {
+    throw new Error('At least one line item is required');
+  }
+
+  const root = create();
+  const req = root.ele('SalesReceiptAddRq', { requestID: resolveRequestId(requestId, 'sales-receipt-1') });
+  const add = req.ele('SalesReceiptAdd');
+
+  addRef(add, 'CustomerRef', customer);
+
+  if (txnDate) {
+    add.ele('TxnDate').txt(txnDate);
+  }
+
+  if (refNumber) {
+    add.ele('RefNumber').txt(refNumber);
+  }
+
+  addAddress(add, 'BillAddress', billTo);
+  addAddress(add, 'ShipAddress', shipTo);
+
+  addRef(add, 'PaymentMethodRef', paymentMethod);
+
+  if (memo) {
+    add.ele('Memo').txt(memo);
+  }
+
+  addRef(add, 'DepositToAccountRef', depositToAccount);
+
+  lineItems.forEach((line, index) => {
+    addSalesItemLine(add, 'SalesReceiptLineAdd', line, index);
+  });
+
+  return wrapRq(root);
+}
+
 
 
 
@@ -681,6 +704,7 @@ module.exports = {
   invoiceQuery,
   invoiceAdd,
   invoiceMod,
+  salesReceiptAdd,
   receivePaymentAdd,
   itemSalesDetailReport
 };

@@ -1519,6 +1519,104 @@ app.post('/api/invoices/query', (req, res) => {
     }
   });
 
+  function normalizeTxnLineTaxableValue(rawTaxable, nonTaxable) {
+    if (rawTaxable === undefined || rawTaxable === null) {
+      return nonTaxable === true ? false : undefined;
+    }
+    if (rawTaxable === false || rawTaxable === 'false' || rawTaxable === 0 || rawTaxable === '0') return false;
+    if (rawTaxable === true || rawTaxable === 'true' || rawTaxable === 1 || rawTaxable === '1') return true;
+    return undefined;
+  }
+
+  function validateTxnLineTaxInputs(item, index) {
+    const rawTaxable = item.taxable !== undefined ? item.taxable : item.isTaxable;
+    const taxableLooksValid =
+      rawTaxable === undefined ||
+      rawTaxable === null ||
+      typeof rawTaxable === 'boolean' ||
+      rawTaxable === 'true' ||
+      rawTaxable === 'false' ||
+      rawTaxable === '1' ||
+      rawTaxable === '0' ||
+      rawTaxable === 1 ||
+      rawTaxable === 0;
+
+    if (!taxableLooksValid) {
+      throw new Error(`Item ${index + 1}: taxable/isTaxable must be boolean (or 'true'/'false'/'1'/'0') when provided`);
+    }
+
+    const rawSalesTaxCode = item.salesTaxCode ?? item.taxCode ?? item.taxCodeName;
+    if (rawSalesTaxCode !== undefined && rawSalesTaxCode !== null) {
+      const isStringCode = typeof rawSalesTaxCode === 'string' && rawSalesTaxCode.trim() !== '';
+      const isObjectCode = typeof rawSalesTaxCode === 'object' &&
+        (rawSalesTaxCode.listId || rawSalesTaxCode.fullName);
+
+      if (!isStringCode && !isObjectCode) {
+        throw new Error(`Item ${index + 1}: salesTaxCode/taxCode/taxCodeName must be a non-empty string or object with listId/fullName`);
+      }
+    }
+
+    return { rawTaxable, rawSalesTaxCode };
+  }
+
+  function normalizeSalesTxnAddItems(items, nonTaxable) {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('items array is required (min 1)');
+    }
+
+    return items.map((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new Error(`Item ${index + 1}: item must be an object`);
+      }
+
+      const itemId = item.itemId || item.listId || null;
+      const itemFullName = item.itemFullName || item.fullName || item.name || null;
+
+      if (!itemId && !itemFullName) {
+        throw new Error(`Item ${index + 1}: itemId or itemFullName is required`);
+      }
+
+      if (item.quantity === undefined || item.quantity === null) {
+        throw new Error(`Item ${index + 1}: quantity is required`);
+      }
+
+      if (item.amount === undefined && (item.rate === undefined || item.rate === null)) {
+        throw new Error(`Item ${index + 1}: rate or amount is required`);
+      }
+
+      if (!Number.isFinite(Number(item.quantity))) {
+        throw new Error(`Item ${index + 1}: quantity must be numeric`);
+      }
+
+      if (item.rate !== undefined && item.rate !== null && !Number.isFinite(Number(item.rate))) {
+        throw new Error(`Item ${index + 1}: rate must be numeric`);
+      }
+
+      if (item.amount !== undefined && item.amount !== null && !Number.isFinite(Number(item.amount))) {
+        throw new Error(`Item ${index + 1}: amount must be numeric`);
+      }
+
+      const { rawTaxable, rawSalesTaxCode } = validateTxnLineTaxInputs(item, index);
+
+      return {
+        item: {
+          listId: itemId || undefined,
+          fullName: itemFullName || undefined
+        },
+        description: item.description || '',
+        quantity: Number(item.quantity),
+        rate: item.rate !== undefined && item.rate !== null ? Number(item.rate) : undefined,
+        amount: item.amount !== undefined && item.amount !== null ? Number(item.amount) : undefined,
+        taxable: normalizeTxnLineTaxableValue(rawTaxable, nonTaxable),
+        salesTaxCode: (() => {
+          if (!rawSalesTaxCode) return null;
+          if (typeof rawSalesTaxCode === 'string') return { fullName: rawSalesTaxCode.trim() };
+          return rawSalesTaxCode;
+        })()
+      };
+    });
+  }
+
   function normalizeInvoiceEditItems(items, nonTaxable) {
     if (!items || items === null) return null;
     if (!Array.isArray(items)) {
@@ -1736,91 +1834,20 @@ app.post('/api/invoices/query', (req, res) => {
     if (!customerId) {
       return res.status(400).json({ error: 'customerId is required' });
     }
-    
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'items array is required (min 1)' });
-    }
 
     if (nonTaxable !== undefined && nonTaxable !== null && typeof nonTaxable !== 'boolean') {
       return res.status(400).json({ error: 'nonTaxable must be boolean when provided' });
     }
     
-    // Validate items
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      
-      if (!item.itemId) {
-        return res.status(400).json({ error: `Item ${i + 1}: itemId is required` });
-      }
-      
-      if (item.quantity === undefined || item.quantity === null) {
-        return res.status(400).json({ error: `Item ${i + 1}: quantity is required` });
-      }
-      
-      if (item.rate === undefined || item.rate === null) {
-        return res.status(400).json({ error: `Item ${i + 1}: rate is required` });
-      }
-
-      const rawTaxable = item.taxable !== undefined ? item.taxable : item.isTaxable;
-      const taxableLooksValid =
-        rawTaxable === undefined ||
-        rawTaxable === null ||
-        typeof rawTaxable === 'boolean' ||
-        rawTaxable === 'true' ||
-        rawTaxable === 'false' ||
-        rawTaxable === '1' ||
-        rawTaxable === '0' ||
-        rawTaxable === 1 ||
-        rawTaxable === 0;
-
-      if (!taxableLooksValid) {
-        return res.status(400).json({
-          error: `Item ${i + 1}: taxable/isTaxable must be boolean (or 'true'/'false'/'1'/'0') when provided`
-        });
-      }
-
-      const rawSalesTaxCode = item.salesTaxCode ?? item.taxCode ?? item.taxCodeName;
-      if (rawSalesTaxCode !== undefined && rawSalesTaxCode !== null) {
-        const isStringCode = typeof rawSalesTaxCode === 'string' && rawSalesTaxCode.trim() !== '';
-        const isObjectCode = typeof rawSalesTaxCode === 'object' &&
-          (rawSalesTaxCode.listId || rawSalesTaxCode.fullName);
-
-        if (!isStringCode && !isObjectCode) {
-          return res.status(400).json({
-            error: `Item ${i + 1}: salesTaxCode/taxCode/taxCodeName must be a non-empty string or object with listId/fullName`
-          });
-        }
-      }
-    }
-    
-    // Convert quick format to full format
-    const lineItems = items.map(item => ({
-      // Accept common boolean representations from upstream systems
-      item: {
-        listId: item.itemId
-      },
-      description: item.description || '',
-      quantity: item.quantity,
-      rate: item.rate,
-      taxable: (() => {
-        const raw = item.taxable !== undefined ? item.taxable : item.isTaxable;
-        if (raw === undefined || raw === null) {
-          return nonTaxable === true ? false : undefined;
-        }
-        if (raw === false || raw === 'false' || raw === 0 || raw === '0') return false;
-        if (raw === true || raw === 'true' || raw === 1 || raw === '1') return true;
-        return undefined;
-      })(),
-      salesTaxCode: (() => {
-        const raw = item.salesTaxCode ?? item.taxCode ?? item.taxCodeName;
-        if (!raw) return null;
-        if (typeof raw === 'string') return { fullName: raw.trim() };
-        return raw;
-      })()
-    }));
+    const lineItems = normalizeSalesTxnAddItems(items, nonTaxable);
     
     // Calculate total
-    const total = lineItems.reduce((sum, line) => sum + (line.quantity * line.rate), 0);
+    const total = lineItems.reduce((sum, line) => {
+      const lineAmount = line.amount !== undefined && line.amount !== null
+        ? Number(line.amount)
+        : Number(line.quantity) * Number(line.rate);
+      return sum + lineAmount;
+    }, 0);
     
     // Queue invoice add job
     const queued = queueJobWithConnectionGuard({
@@ -1861,6 +1888,90 @@ app.post('/api/invoices/query', (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+  app.post('/api/sales-receipts', (req, res) => {
+    try {
+      const {
+        customerId,
+        customerFullName,
+        txnDate,
+        refNumber,
+        items,
+        billTo,
+        shipTo,
+        memo,
+        nonTaxable,
+        paymentMethod,
+        depositToAccount
+      } = req.body || {};
+
+      const normalizedBillTo = normalizeAddressInput(billTo, 'billTo');
+      const normalizedShipTo = normalizeAddressInput(shipTo, 'shipTo');
+      const normalizedPaymentMethod = normalizeRefInput(paymentMethod, 'paymentMethod');
+      const normalizedDepositToAccount = normalizeRefInput(depositToAccount, 'depositToAccount');
+
+      if (!customerId && !customerFullName) {
+        return res.status(400).json({ error: 'customerId or customerFullName is required' });
+      }
+
+      if (nonTaxable !== undefined && nonTaxable !== null && typeof nonTaxable !== 'boolean') {
+        return res.status(400).json({ error: 'nonTaxable must be boolean when provided' });
+      }
+
+      const lineItems = normalizeSalesTxnAddItems(items, nonTaxable);
+      const total = lineItems.reduce((sum, line) => {
+        const lineAmount = line.amount !== undefined && line.amount !== null
+          ? Number(line.amount)
+          : Number(line.quantity) * Number(line.rate);
+        return sum + lineAmount;
+      }, 0);
+
+      const queued = queueJobWithConnectionGuard({
+        type: 'SalesReceiptAdd',
+        payload: {
+          customer: {
+            listId: customerId || null,
+            fullName: customerFullName || null
+          },
+          txnDate: txnDate || null,
+          refNumber: refNumber !== undefined ? refNumber : null,
+          memo: memo || null,
+          lineItems,
+          billTo: normalizedBillTo,
+          shipTo: normalizedShipTo,
+          paymentMethod: normalizedPaymentMethod,
+          depositToAccount: normalizedDepositToAccount
+        }
+      });
+
+      if (!queued.accepted) {
+        return res.status(503).json({
+          success: false,
+          error: `QuickBooks has been offline for more than ${queued.connection.offlineCutoffMinutes} minutes. Job not queued.`,
+          quickbooks: queued.connection
+        });
+      }
+
+      const job = queued.queuedJob;
+      return res.json({
+        success: true,
+        jobId: job.id,
+        message: 'Sales receipt create job queued',
+        salesReceipt: {
+          customerId: customerId || null,
+          customerFullName: customerFullName || null,
+          txnDate: txnDate || 'Today',
+          lineItems: lineItems.length,
+          total: parseFloat(total.toFixed(2)),
+          paymentMethod: normalizedPaymentMethod?.fullName || normalizedPaymentMethod?.listId || null,
+          depositToAccount: normalizedDepositToAccount?.fullName || normalizedDepositToAccount?.listId || null
+        },
+        instruction: 'Check /api/queue for results after QBWC syncs'
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+  });
 
   app.post('/api/payments', (req, res) => {
     try {

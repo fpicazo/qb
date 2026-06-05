@@ -12,6 +12,7 @@ const {
   invoiceQuery,
   invoiceAdd,
   invoiceMod,
+  salesReceiptAdd,
   receivePaymentAdd,
   itemSalesDetailReport
 } = require('./qbxmlBuilders');
@@ -349,6 +350,25 @@ const service = {
             console.log('ðŸ“ InvoiceMod XML generated');
             console.log('   TxnID:', job.payload.txnId);
             console.log('   Line Items:', job.payload.lineItems?.length || 0);
+          } else if (job.type === 'SalesReceiptAdd') {
+            qbxml = salesReceiptAdd({
+              customer: job.payload.customer,
+              txnDate: job.payload.txnDate,
+              refNumber: job.payload.refNumber,
+              memo: job.payload.memo,
+              lineItems: job.payload.lineItems,
+              billTo: job.payload.billTo,
+              shipTo: job.payload.shipTo,
+              paymentMethod: job.payload.paymentMethod,
+              depositToAccount: job.payload.depositToAccount,
+              requestId: job.id
+            });
+            console.log('SalesReceiptAdd XML generated');
+            console.log('   Customer:', job.payload.customer.listId || job.payload.customer.fullName);
+            console.log('   Line Items:', job.payload.lineItems?.length || 0);
+            if (job.payload.paymentMethod?.listId || job.payload.paymentMethod?.fullName) {
+              console.log('   Payment Method:', job.payload.paymentMethod.listId || job.payload.paymentMethod.fullName);
+            }
           } else if (job.type === 'ItemSalesDetailReportQuery') {
             qbxml = itemSalesDetailReport({
               listId: job.payload.listId,
