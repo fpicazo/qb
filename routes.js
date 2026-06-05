@@ -1901,6 +1901,7 @@ app.post('/api/invoices/query', (req, res) => {
         shipTo,
         memo,
         nonTaxable,
+        arAccount,
         paymentMethod,
         depositToAccount
       } = req.body || {};
@@ -1908,7 +1909,12 @@ app.post('/api/invoices/query', (req, res) => {
       const normalizedBillTo = normalizeAddressInput(billTo, 'billTo');
       const normalizedShipTo = normalizeAddressInput(shipTo, 'shipTo');
       const normalizedPaymentMethod = normalizeRefInput(paymentMethod, 'paymentMethod');
-      const normalizedDepositToAccount = normalizeRefInput(depositToAccount, 'depositToAccount');
+      const normalizedDepositToAccount = normalizeRefInput(
+        depositToAccount !== undefined && depositToAccount !== null && depositToAccount !== ''
+          ? depositToAccount
+          : arAccount,
+        'depositToAccount'
+      );
 
       if (!customerId && !customerFullName) {
         return res.status(400).json({ error: 'customerId or customerFullName is required' });
